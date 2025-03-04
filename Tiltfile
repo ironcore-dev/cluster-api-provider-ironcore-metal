@@ -19,6 +19,7 @@ settings = {
     "preload_images_for_kind": True,
     "kind_cluster_name": "capm",
     "capi_version": "v1.6.4",
+    "capi_ipam_version": "v1.0.1",
     "cert_manager_version": "v1.14.4",
     "kubernetes_version": "v1.29.4",
     "metal_image": "ghcr.io/ironcore-dev/metal-operator-controller-manager:latest",
@@ -43,7 +44,7 @@ settings = {
         "--insecure-diagnostics=false",
         "--feature-gates=MachinePool=false,KubeadmBootstrapFormatIgnition=true",
         "--bootstrap-token-ttl=15m"
-        ]
+        ],
     }
 }
 
@@ -90,6 +91,13 @@ def deploy_capi():
             kb_new_args = new_args.get("kubeadm-bootstrap")
             if kb_new_args:
                 replace_args_with_new_args("capi-kubeadm-bootstrap-system", "capi-kubeadm-bootstrap-controller-manager", kb_new_args)
+
+# deploy CAPI IPAM
+def deploy_capi_ipam():
+    version = settings.get("capi_ipam_version")
+    capi_uri = "https://github.com/kubernetes-sigs/cluster-api-ipam-provider-in-cluster/releases/download/{}/ipam-components.yaml".format(version)
+    cmd = "curl -sSL {} | {} | {} apply -f -".format(capi_uri, envsubst_cmd, kubectl_cmd)
+    local(cmd, quiet=True)
 
 # deploy metal-operator
 def deploy_metal():
@@ -288,6 +296,8 @@ deploy_cert_manager()
 
 deploy_capi()
 
+deploy_capi_ipam()
+
 deploy_metal()
 
 capm()
@@ -322,6 +332,14 @@ k8s_yaml('./templates/test/cluster_v1beta1_kubeadmcontrolplane.yaml')
 k8s_resource(
     objects=['kubeadmcontrolplane-sample-cp:kubeadmcontrolplane'],
     new_name='kubeadmcontrolplane-sample-cp',
+    trigger_mode=TRIGGER_MODE_MANUAL,
+    auto_init=False
+)
+
+k8s_yaml('./templates/test/ipam_cluster_v1alpha2_globalinclusterippool.yaml')
+k8s_resource(
+    objects=['globalinclusterippool-sample-cp:globalinclusterippool'],
+    new_name='globalinclusterippool-sample-cp',
     trigger_mode=TRIGGER_MODE_MANUAL,
     auto_init=False
 )

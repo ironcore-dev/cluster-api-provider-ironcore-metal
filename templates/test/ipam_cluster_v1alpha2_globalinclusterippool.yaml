@@ -1,0 +1,11 @@
+apiVersion: ipam.cluster.x-k8s.io/v1alpha2
+kind: GlobalInClusterIPPool
+metadata:
+  name: globalinclusterippool-sample-cp
+spec:
+  addresses:
+  - 10.10.10.0/24
+  excludedAddresses:
+  - 10.10.10.0/29
+  gateway: 10.10.10.1
+  prefix: 24
