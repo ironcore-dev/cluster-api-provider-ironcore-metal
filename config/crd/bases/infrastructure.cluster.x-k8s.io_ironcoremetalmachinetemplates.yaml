@@ -77,6 +77,49 @@ spec:
                         description: Image specifies the boot image to be used for
                           the server.
                         type: string
+                      ipamConfig:
+                        description: IPAMConfig is a list of references to Network
+                          resources that should be used to assign IP addresses to
+                          the worker nodes.
+                        items:
+                          description: IPAMConfig is a reference to an IPAM resource.
+                          properties:
+                            ipamRef:
+                              description: IPAMRef is a reference to the IPAM object,
+                                which will be used for IP allocation.
+                              properties:
+                                apiGroup:
+                                  description: APIGroup is the group for the resource
+                                    being referenced.
+                                  type: string
+                                kind:
+                                  description: Kind is the type of resource being
+                                    referenced.
+                                  type: string
+                                name:
+                                  description: Name is the name of resource being
+                                    referenced.
+                                  type: string
+                              required:
+                              - apiGroup
+                              - kind
+                              - name
+                              type: object
+                            metadataKey:
+                              description: MetadataKey is the name of metadata key
+                                for the network.
+                              type: string
+                          required:
+                          - ipamRef
+                          - metadataKey
+                          type: object
+                        type: array
+                      metadata:
+                        additionalProperties:
+                          type: string
+                        description: Metadata is a key-value map of additional data
+                          which should be passed to the Machine.
+                        type: object
                       providerID:
                         description: ProviderID is the unique identifier as specified
                           by the cloud provider.

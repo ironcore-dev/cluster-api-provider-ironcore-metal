@@ -308,38 +308,38 @@ k8s_yaml('./templates/test/cluster_v1beta1_cluster.yaml')
 k8s_resource(
     objects=['cluster-sample:cluster'],
     new_name='cluster-sample',
-    trigger_mode=TRIGGER_MODE_MANUAL,
-    auto_init=False
+    trigger_mode=TRIGGER_MODE_AUTO,
+    auto_init=True
 )
 
 k8s_yaml('./config/samples/infrastructure_v1alpha1_ironcoremetalcluster.yaml')
 k8s_resource(
     objects=['ironcoremetalcluster-sample:ironcoremetalcluster'],
     new_name='ironcoremetalcluster-sample',
-    trigger_mode=TRIGGER_MODE_MANUAL,
-    auto_init=False
+    trigger_mode=TRIGGER_MODE_AUTO,
+    auto_init=True
 )
 
 k8s_yaml('./config/samples/infrastructure_v1alpha1_ironcoremetalmachinetemplate.yaml')
 k8s_resource(
     objects=['ironcoremetalmachinetemplate-sample-control-plane:ironcoremetalmachinetemplate'],
     new_name='ironcoremetalmachinetemplate-sample-control-plane',
-    trigger_mode=TRIGGER_MODE_MANUAL,
-    auto_init=False
+    trigger_mode=TRIGGER_MODE_AUTO,
+    auto_init=True
 )
 
 k8s_yaml('./templates/test/cluster_v1beta1_kubeadmcontrolplane.yaml')
 k8s_resource(
     objects=['kubeadmcontrolplane-sample-cp:kubeadmcontrolplane'],
     new_name='kubeadmcontrolplane-sample-cp',
-    trigger_mode=TRIGGER_MODE_MANUAL,
-    auto_init=False
+    trigger_mode=TRIGGER_MODE_AUTO,
+    auto_init=True
 )
 
 k8s_yaml('./templates/test/ipam_cluster_v1alpha2_globalinclusterippool.yaml')
 k8s_resource(
     objects=['globalinclusterippool-sample-cp:globalinclusterippool'],
     new_name='globalinclusterippool-sample-cp',
-    trigger_mode=TRIGGER_MODE_MANUAL,
-    auto_init=False
+    trigger_mode=TRIGGER_MODE_AUTO,
+    auto_init=True
 )

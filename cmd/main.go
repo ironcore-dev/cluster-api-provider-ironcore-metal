@@ -28,6 +28,7 @@ import (
 	infrastructurev1alpha1 "github.com/ironcore-dev/cluster-api-provider-ironcore-metal/api/v1alpha1"
 	"github.com/ironcore-dev/cluster-api-provider-ironcore-metal/internal/controller"
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
+	capiv1beta1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -37,6 +38,7 @@ var (
 )
 
 func init() {
+	utilruntime.Must(capiv1beta1.AddToScheme(scheme))
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(clusterv1.AddToScheme(scheme))
 	utilruntime.Must(infrastructurev1alpha1.AddToScheme(scheme))

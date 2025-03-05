@@ -31,14 +31,15 @@ spec:
     ignition:
       containerLinuxConfig:
         additionalConfig: |-
-          files:
-          - path: /opt/testdir/testfile
-            filesystem: root
-            mode: 0644
-            contents:
-              inline: |
-                [TEST]
-                test=1
+          storage:
+            files:
+            - path: /opt/testdir/testfile
+              filesystem: root
+              mode: 0644
+              contents:
+                inline: |
+                  [TEST]
+                  test=1
     preKubeadmCommands:
     - hostnamectl set-hostname $${METAL_HOSTNAME}
   version: 1.29.4
