@@ -18,6 +18,7 @@ import (
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -45,6 +46,8 @@ type IroncoreMetalMachineReconciler struct {
 const (
 	IroncoreMetalMachineFinalizer = "infrastructure.cluster.x-k8s.io/ironcoremetalmachine"
 	DefaultIgnitionSecretKeyName  = "ignition"
+	metaDataFile                  = "/var/lib/metal-cloud-config/metadata"
+	fileMode                      = 0644
 )
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=ironcoremetalmachines,verbs=get;list;watch;create;update;patch;delete
@@ -225,14 +228,14 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 	}
 
 	machineScope.Info("Creating secret data", "Secret", machineScope.IroncoreMetalMachine.Name)
-	secretData, err := r.createSecretData(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine, bootstrapSecret.Data["value"])
+	ignition, err := r.createIgnition(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine, bootstrapSecret.Data["value"])
 	if err != nil {
 		machineScope.Error(err, "failed to create or patch ignition secret")
 		return ctrl.Result{}, err
 	}
 
 	machineScope.Info("Creating IgnitionSecret", "Secret", machineScope.IroncoreMetalMachine.Name)
-	ignitionSecret, err := r.applyIgnitionSecret(ctx, machineScope.Logger, bootstrapSecret, secretData)
+	ignitionSecret, err := r.applyIgnitionSecret(ctx, machineScope.Logger, bootstrapSecret, ignition)
 	if err != nil {
 		machineScope.Error(err, "failed to create or patch ignition secret")
 		return ctrl.Result{}, err
@@ -265,35 +268,63 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 	return reconcile.Result{}, nil
 }
 
-func (r *IroncoreMetalMachineReconciler) createSecretData(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, secretData []byte) ([]byte, error) {
-	secretData = findAndReplaceIgnition(ironcoremetalmachine, secretData)
+func (r *IroncoreMetalMachineReconciler) createIgnition(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, ignition []byte) ([]byte, error) {
+	ignition = findAndReplaceIgnition(ironcoremetalmachine, ignition)
 
-	secretDataMap := make(map[string]any)
-	if err := json.Unmarshal(secretData, &secretDataMap); err != nil {
+	ignitionMap := make(map[string]any)
+	if err := json.Unmarshal(ignition, &ignitionMap); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal secret data: %w", err)
 	}
-	if err := r.applyIPAddresses(ctx, log, ironcoremetalmachine, secretDataMap); err != nil {
+
+	metaData, err := r.createMetaData(ctx, log, ironcoremetalmachine, ironcoremetalmachine.Spec.Metadata)
+	if err != nil {
 		return nil, fmt.Errorf("failed to apply IPAddresses: %w", err)
 	}
-	return json.Marshal(secretDataMap)
+
+	if len(metaData) > 0 {
+		metaDataConf := map[string]any{
+			"storage": map[string]any{
+				"files": []any{map[string]any{
+					"path": metaDataFile,
+					"mode": fileMode,
+					"contents": map[string]any{
+						"inline": string(metaData),
+					},
+				}},
+			},
+		}
+		// merge metaData configuration with ignition content
+		if err := mergo.Merge(&ignitionMap, metaDataConf, mergo.WithAppendSlice); err != nil {
+			return nil, fmt.Errorf("failed to merge metaData configuration with ignition content: %w", err)
+		}
+	}
+
+	return json.Marshal(ignitionMap)
 }
 
-func (r *IroncoreMetalMachineReconciler) applyIPAddresses(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, data map[string]any) error {
+func (r *IroncoreMetalMachineReconciler) createMetaData(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, metaData *apiextensionsv1.JSON) ([]byte, error) {
+	metaDataMap := make(map[string]any)
+	if metaData != nil {
+		if err := json.Unmarshal(metaData.Raw, &metaDataMap); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+		}
+	}
+
 	for _, networkRef := range ironcoremetalmachine.Spec.IPAMConfig {
 		ipAddrKey := client.ObjectKeyFromObject(ironcoremetalmachine)
 		ipClaim := &capiv1beta1.IPAddressClaim{}
 		if err := r.Client.Get(ctx, ipAddrKey, ipClaim); err != nil && !apierrors.IsNotFound(err) {
-			return err
+			return nil, err
 
 		} else if err == nil {
 			log.V(3).Info("IP found", "IP", ipAddrKey.String())
 			if ipClaim.Status.AddressRef.Name == "" {
-				return errors.New("IP address claim isn't ready")
+				return nil, errors.New("IP address claim isn't ready")
 			}
 
 		} else if apierrors.IsNotFound(err) {
 			if networkRef.IPAMRef == nil {
-				return errors.New("ipamRef of an ipamConfig is not set")
+				return nil, errors.New("ipamRef of an ipamConfig is not set")
 			}
 			log.V(3).Info("creating IP address claim", "name", ipAddrKey.String())
 			apiGroup := capiv1beta1.GroupVersion.Group
@@ -311,7 +342,7 @@ func (r *IroncoreMetalMachineReconciler) applyIPAddresses(ctx context.Context, l
 				},
 			}
 			if err = r.Client.Create(ctx, ipClaim); err != nil {
-				return fmt.Errorf("error creating IP: %w", err)
+				return nil, fmt.Errorf("error creating IP: %w", err)
 			}
 
 			// Wait for the IP address claim to reach the ready state
@@ -327,29 +358,24 @@ func (r *IroncoreMetalMachineReconciler) applyIPAddresses(ctx context.Context, l
 					return ipClaim.Status.AddressRef.Name != "", nil
 				})
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 
 		ipAddr := &capiv1beta1.IPAddress{}
 		if err := r.Client.Get(ctx, ipAddrKey, ipAddr); err != nil {
-			return err
+			return nil, err
 		}
-		addressMetaData := map[string]any{
-			networkRef.MetadataKey: map[string]any{
-				"ip":      ipAddr.Spec.Address,
-				"prefix":  ipAddr.Spec.Prefix,
-				"gateway": ipAddr.Spec.Gateway,
-			},
-		}
-		if err := mergo.Merge(&data, addressMetaData, mergo.WithOverride); err != nil {
-			return fmt.Errorf("failed to merge addressMetaData: %w", err)
+		metaDataMap[networkRef.MetadataKey] = map[string]any{
+			"ip":      ipAddr.Spec.Address,
+			"prefix":  ipAddr.Spec.Prefix,
+			"gateway": ipAddr.Spec.Gateway,
 		}
 	}
-	return nil
+	return json.Marshal(metaDataMap)
 }
 
-func (r *IroncoreMetalMachineReconciler) applyIgnitionSecret(ctx context.Context, log *logr.Logger, capidatasecret *corev1.Secret, secretData []byte) (*corev1.Secret, error) {
+func (r *IroncoreMetalMachineReconciler) applyIgnitionSecret(ctx context.Context, log *logr.Logger, capidatasecret *corev1.Secret, ignition []byte) (*corev1.Secret, error) {
 	secretObj := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("ignition-%s", capidatasecret.Name),
@@ -360,7 +386,7 @@ func (r *IroncoreMetalMachineReconciler) applyIgnitionSecret(ctx context.Context
 			APIVersion: corev1.SchemeGroupVersion.String(),
 		},
 		Data: map[string][]byte{
-			DefaultIgnitionSecretKeyName: secretData,
+			DefaultIgnitionSecretKeyName: ignition,
 		},
 	}
 

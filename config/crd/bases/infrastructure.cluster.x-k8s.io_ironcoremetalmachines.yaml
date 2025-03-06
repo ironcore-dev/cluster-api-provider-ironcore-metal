@@ -78,11 +78,9 @@ spec:
                   type: object
                 type: array
               metadata:
-                additionalProperties:
-                  type: string
                 description: Metadata is a key-value map of additional data which
                   should be passed to the Machine.
-                type: object
+                x-kubernetes-preserve-unknown-fields: true
               providerID:
                 description: ProviderID is the unique identifier as specified by the
                   cloud provider.

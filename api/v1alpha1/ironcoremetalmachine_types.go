@@ -6,6 +6,7 @@ package v1alpha1
 import (
 	"time"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -37,7 +38,7 @@ type IroncoreMetalMachineSpec struct {
 	IPAMConfig []IPAMConfig `json:"ipamConfig,omitempty"`
 	// Metadata is a key-value map of additional data which should be passed to the Machine.
 	// +optional
-	Metadata map[string]string `json:"metadata,omitempty"`
+	Metadata *apiextensionsv1.JSON `json:"metadata,omitempty"`
 }
 
 // IroncoreMetalMachineStatus defines the observed state of IroncoreMetalMachine
