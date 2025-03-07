@@ -335,7 +335,7 @@ func (r *IroncoreMetalMachineReconciler) createMetaData(ctx context.Context, log
 				return nil, errors.New("ipamRef of an ipamConfig is not set")
 			}
 			log.V(3).Info("creating IP address claim", "name", ipAddrKey.String())
-			apiGroup := capiv1beta1.GroupVersion.Group
+			apiGroup := networkRef.IPAMRef.APIGroup
 			ipClaim = &capiv1beta1.IPAddressClaim{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      ipAddrKey.Name,
@@ -344,7 +344,7 @@ func (r *IroncoreMetalMachineReconciler) createMetaData(ctx context.Context, log
 				Spec: capiv1beta1.IPAddressClaimSpec{
 					PoolRef: corev1.TypedLocalObjectReference{
 						APIGroup: &apiGroup,
-						Kind:     "GlobalInClusterIPPool",
+						Kind:     networkRef.IPAMRef.Kind,
 						Name:     networkRef.IPAMRef.Name,
 					},
 				},
