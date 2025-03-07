@@ -23,6 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 	clusterapiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -319,13 +320,19 @@ func (r *IroncoreMetalMachineReconciler) createMetaData(ctx context.Context, log
 	}
 
 	for _, networkRef := range ironcoremetalmachine.Spec.IPAMConfig {
-		ipAddrKey := client.ObjectKeyFromObject(ironcoremetalmachine)
+		ipAddrClaimName := fmt.Sprintf("%s-%s", ironcoremetalmachine.Name, networkRef.MetadataKey)
+		if len(ipAddrClaimName) > validation.DNS1123SubdomainMaxLength {
+			log.Info("IP address claim name is too long, it will be shortened which can cause name collisions", "name", ipAddrClaimName)
+			ipAddrClaimName = ipAddrClaimName[:validation.DNS1123SubdomainMaxLength]
+		}
+
+		ipAddrClaimKey := client.ObjectKey{Namespace: ironcoremetalmachine.Namespace, Name: ipAddrClaimName}
 		ipClaim := &capiv1beta1.IPAddressClaim{}
-		if err := r.Client.Get(ctx, ipAddrKey, ipClaim); err != nil && !apierrors.IsNotFound(err) {
+		if err := r.Client.Get(ctx, ipAddrClaimKey, ipClaim); err != nil && !apierrors.IsNotFound(err) {
 			return nil, err
 
 		} else if err == nil {
-			log.V(3).Info("IP found", "IP", ipAddrKey.String())
+			log.V(3).Info("IP address claim found", "IP", ipAddrClaimKey.String())
 			if ipClaim.Status.AddressRef.Name == "" {
 				return nil, errors.New("IP address claim isn't ready")
 			}
@@ -334,12 +341,12 @@ func (r *IroncoreMetalMachineReconciler) createMetaData(ctx context.Context, log
 			if networkRef.IPAMRef == nil {
 				return nil, errors.New("ipamRef of an ipamConfig is not set")
 			}
-			log.V(3).Info("creating IP address claim", "name", ipAddrKey.String())
+			log.V(3).Info("creating IP address claim", "name", ipAddrClaimKey.String())
 			apiGroup := networkRef.IPAMRef.APIGroup
 			ipClaim = &capiv1beta1.IPAddressClaim{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      ipAddrKey.Name,
-					Namespace: ipAddrKey.Namespace,
+					Name:      ipAddrClaimKey.Name,
+					Namespace: ipAddrClaimKey.Namespace,
 				},
 				Spec: capiv1beta1.IPAddressClaimSpec{
 					PoolRef: corev1.TypedLocalObjectReference{
@@ -360,7 +367,7 @@ func (r *IroncoreMetalMachineReconciler) createMetaData(ctx context.Context, log
 				time.Millisecond*340,
 				true,
 				func(ctx context.Context) (bool, error) {
-					if err = r.Client.Get(ctx, ipAddrKey, ipClaim); err != nil && !apierrors.IsNotFound(err) {
+					if err = r.Client.Get(ctx, ipAddrClaimKey, ipClaim); err != nil && !apierrors.IsNotFound(err) {
 						return false, err
 					}
 					return ipClaim.Status.AddressRef.Name != "", nil
@@ -370,6 +377,7 @@ func (r *IroncoreMetalMachineReconciler) createMetaData(ctx context.Context, log
 			}
 		}
 
+		ipAddrKey := client.ObjectKey{Namespace: ipClaim.Namespace, Name: ipClaim.Status.AddressRef.Name}
 		ipAddr := &capiv1beta1.IPAddress{}
 		if err := r.Client.Get(ctx, ipAddrKey, ipAddr); err != nil {
 			return nil, err
