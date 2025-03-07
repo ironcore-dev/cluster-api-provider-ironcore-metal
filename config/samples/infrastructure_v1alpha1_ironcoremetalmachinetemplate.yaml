@@ -12,3 +12,11 @@ spec:
         matchLabels:
           server: metal
       image: ghcr.io/ironcore-dev/os-images/gardenlinux:1443.3
+      metadata:
+        foo: bar
+      ipamConfig:
+      - metadataKey: bond
+        ipamRef:
+          apiGroup: ipam.cluster.x-k8s.io
+          kind: GlobalInClusterIPPool
+          name: globalinclusterippool-sample-cp
