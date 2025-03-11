@@ -49,6 +49,8 @@ const (
 	DefaultIgnitionSecretKeyName  = "ignition"
 	metaDataFile                  = "/var/lib/metal-cloud-config/metadata"
 	fileMode                      = 0644
+	bootstrapDataKey              = "value"
+	metalHostnamePlaceholder      = "%24%24%7BMETAL_HOSTNAME%7D"
 )
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=ironcoremetalmachines,verbs=get;list;watch;create;update;patch;delete
@@ -236,10 +238,10 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 		return ctrl.Result{}, err
 	}
 
-	machineScope.Info("Creating secret data", "Secret", machineScope.IroncoreMetalMachine.Name)
-	ignition, err := r.createIgnition(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine, bootstrapSecret.Data["value"])
+	machineScope.Info("Creating an ignition", "Machine", machineScope.IroncoreMetalMachine.Name)
+	ignition, err := r.createIgnition(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine, bootstrapSecret.Data[bootstrapDataKey])
 	if err != nil {
-		machineScope.Error(err, "failed to create or patch ignition secret")
+		machineScope.Error(err, "failed to create an ignition")
 		return ctrl.Result{}, err
 	}
 
@@ -481,8 +483,7 @@ func (r *IroncoreMetalMachineReconciler) ensureServerClaimBound(ctx context.Cont
 
 func findAndReplaceIgnition(ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, data []byte) []byte {
 	// replace $${METAL_HOSTNAME} with machine name
-	hostname := "%24%24%7BMETAL_HOSTNAME%7D"
-	modifiedData := strings.ReplaceAll(string(data), hostname, ironcoremetalmachine.Name)
+	modifiedData := strings.ReplaceAll(string(data), metalHostnamePlaceholder, ironcoremetalmachine.Name)
 
 	return []byte(modifiedData)
 }
