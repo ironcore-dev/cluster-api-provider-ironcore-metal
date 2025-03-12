@@ -9,9 +9,11 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	. "sigs.k8s.io/controller-runtime/pkg/envtest/komega"
 
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -27,7 +29,7 @@ import (
 )
 
 var _ = Describe("IroncoreMetalMachine Controller", func() {
-	When("all resources are present to create an ignition", func() {
+	When("all resources are present to reconcile", func() {
 		const namespace = "default"
 
 		var (
@@ -147,17 +149,18 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			Expect(k8sClient.Delete(ctx, metalCluster)).To(Succeed())
 			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
 			Expect(k8sClient.Delete(ctx, machine)).To(Succeed())
-			Expect(get(metalMachine)).To(Succeed())
-			Expect(clientutils.PatchRemoveFinalizer(ctx, k8sClient, metalMachine, IroncoreMetalMachineFinalizer)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, metalMachine)).To(Succeed())
+			if err := get(metalMachine); err == nil {
+				Expect(clientutils.PatchRemoveFinalizer(ctx, k8sClient, metalMachine, IroncoreMetalMachineFinalizer)).To(Succeed())
+				Expect(k8sClient.Delete(ctx, metalMachine)).To(Succeed())
 
-			serverClaim := &metalv1alpha1.ServerClaim{}
-			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), serverClaim)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, serverClaim)).To(Succeed())
+				serverClaim := &metalv1alpha1.ServerClaim{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), serverClaim)).To(Succeed())
+				Expect(k8sClient.Delete(ctx, serverClaim)).To(Succeed())
 
-			metalSecret := &corev1.Secret{}
-			Expect(k8sClient.Get(ctx, metalSecretNN, metalSecret)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, metalSecret)).To(Succeed())
+				metalSecret := &corev1.Secret{}
+				Expect(k8sClient.Get(ctx, metalSecretNN, metalSecret)).To(Succeed())
+				Expect(k8sClient.Delete(ctx, metalSecret)).To(Succeed())
+			}
 		})
 
 		It("should create the ignition secret", func() {
@@ -262,6 +265,34 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 
 					expectIgnition(`{"name":"metal-machine","storage":{"files":[{"contents":{"inline":"{\"foo\":\"bar\",\"meta-key\":{\"gateway\":\"10.11.12.1\",\"ip\":\"10.11.12.13\",\"prefix\":24}}"},"mode":420,"path":"/var/lib/metal-cloud-config/metadata"}]}}`)
 				})
+			})
+		})
+
+		When("deletion timestamp is set", func() {
+			It("should delete the ip address claims", func() {
+				Expect(k8sClient.Delete(ctx, metalMachine)).To(Succeed())
+				ipAddressClaim1 := &capiv1beta1.IPAddressClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      fmt.Sprintf("%s-1", metalMachine.Name),
+						Namespace: namespace,
+					},
+				}
+				Expect(k8sClient.Create(ctx, ipAddressClaim1)).To(Succeed())
+				ipAddressClaim2 := &capiv1beta1.IPAddressClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      fmt.Sprintf("%s-2", metalMachine.Name),
+						Namespace: namespace,
+					},
+				}
+				Expect(k8sClient.Create(ctx, ipAddressClaim2)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				Eventually(Get(ipAddressClaim1)).Should(Satisfy(apierrors.IsNotFound))
+				Eventually(Get(ipAddressClaim2)).Should(Satisfy(apierrors.IsNotFound))
 			})
 		})
 	})

@@ -187,14 +187,17 @@ func (r *IroncoreMetalMachineReconciler) reconcileDelete(ctx context.Context, ma
 
 	ipList := &capiv1beta1.IPAddressClaimList{}
 	if err := r.Client.List(ctx, ipList, client.InNamespace(machineScope.IroncoreMetalMachine.Namespace)); meta.IsNoMatchError(err) {
-		machineScope.Logger.Info(fmt.Sprintf("Kind %s not found, assuming IP objects for that kind is absent", ipList.GetObjectKind().GroupVersionKind().Kind))
+		machineScope.Logger.Info("Kind not found, assuming IP objects for that kind is absent", "kind", ipList.GetObjectKind().GroupVersionKind().Kind)
 		ipList = &capiv1beta1.IPAddressClaimList{}
 	} else if err != nil {
 		return ctrl.Result{}, fmt.Errorf("error listing ip resources: %s", err.Error())
 	}
 	for _, ip := range ipList.Items {
 		if strings.HasPrefix(ip.Name, machineScope.IroncoreMetalMachine.Name) {
-			if err := r.Client.Delete(ctx, &ip); !meta.IsNoMatchError(client.IgnoreNotFound(err)) {
+			if err := r.Client.Delete(ctx, &ip); meta.IsNoMatchError(err) {
+				machineScope.Logger.Info("Kind not found, assuming IP objects for that kind is absent", "kind", ipList.GetObjectKind().GroupVersionKind().Kind, "object", ip.Name)
+			} else if client.IgnoreNotFound(err) != nil {
+				// Unknown leads to short retry in machine controller
 				return ctrl.Result{}, fmt.Errorf("error deleting ip resource: %s", err.Error())
 			}
 		}
