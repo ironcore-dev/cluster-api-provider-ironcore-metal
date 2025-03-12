@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -185,12 +186,15 @@ func (r *IroncoreMetalMachineReconciler) reconcileDelete(ctx context.Context, ma
 	// insert ServerClaim deletion logic here
 
 	ipList := &capiv1beta1.IPAddressClaimList{}
-	if err := r.Client.List(ctx, ipList, client.InNamespace(machineScope.IroncoreMetalMachine.Namespace)); err != nil {
+	if err := r.Client.List(ctx, ipList, client.InNamespace(machineScope.IroncoreMetalMachine.Namespace)); meta.IsNoMatchError(err) {
+		machineScope.Logger.Info(fmt.Sprintf("Kind %s not found, assuming IP objects for that kind is absent", ipList.GetObjectKind().GroupVersionKind().Kind))
+		ipList = &capiv1beta1.IPAddressClaimList{}
+	} else if err != nil {
 		return ctrl.Result{}, fmt.Errorf("error listing ip resources: %s", err.Error())
 	}
 	for _, ip := range ipList.Items {
 		if strings.HasPrefix(ip.Name, machineScope.IroncoreMetalMachine.Name) {
-			if err := r.Client.Delete(ctx, &ip); client.IgnoreNotFound(err) != nil {
+			if err := r.Client.Delete(ctx, &ip); !meta.IsNoMatchError(client.IgnoreNotFound(err)) {
 				return ctrl.Result{}, fmt.Errorf("error deleting ip resource: %s", err.Error())
 			}
 		}
