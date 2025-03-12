@@ -292,7 +292,7 @@ func (r *IroncoreMetalMachineReconciler) createIgnition(ctx context.Context, log
 		return nil, fmt.Errorf("failed to apply IPAddresses: %w", err)
 	}
 
-	if len(metaData) > 0 {
+	if len(metaData) > 2 { // check if metaData is not an empty json object e.g. {}
 		metaDataConf := map[string]any{
 			"storage": map[string]any{
 				"files": []any{map[string]any{

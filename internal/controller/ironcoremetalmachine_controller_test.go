@@ -166,7 +166,7 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			expectIgnition(`{"name":"metal-machine","storage":{"files":[{"contents":{"inline":"{}"},"mode":420,"path":"/var/lib/metal-cloud-config/metadata"}]}}`)
+			expectIgnition(`{"name":"metal-machine"}`)
 		})
 
 		When("the metadata is present in the metal machine", func() {
