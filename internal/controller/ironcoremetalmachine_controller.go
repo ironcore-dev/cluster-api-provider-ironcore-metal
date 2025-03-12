@@ -5,33 +5,38 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/imdario/mergo"
+	infrav1alpha1 "github.com/ironcore-dev/cluster-api-provider-ironcore-metal/api/v1alpha1"
 	"github.com/ironcore-dev/cluster-api-provider-ironcore-metal/internal/scope"
 	"github.com/ironcore-dev/controller-utils/clientutils"
+	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
-
 	clusterapiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	capiv1beta1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	infrav1alpha1 "github.com/ironcore-dev/cluster-api-provider-ironcore-metal/api/v1alpha1"
-	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // IroncoreMetalMachineReconciler reconciles a IroncoreMetalMachine object
@@ -43,6 +48,10 @@ type IroncoreMetalMachineReconciler struct {
 const (
 	IroncoreMetalMachineFinalizer = "infrastructure.cluster.x-k8s.io/ironcoremetalmachine"
 	DefaultIgnitionSecretKeyName  = "ignition"
+	metaDataFile                  = "/var/lib/metal-cloud-config/metadata"
+	fileMode                      = 0644
+	bootstrapDataKey              = "value"
+	metalHostnamePlaceholder      = "%24%24%7BMETAL_HOSTNAME%7D"
 )
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=ironcoremetalmachines,verbs=get;list;watch;create;update;patch;delete
@@ -52,6 +61,8 @@ const (
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinesets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=kubeadmcontrolplanes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=ipam.cluster.x-k8s.io,resources=ipaddressclaims,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=ipam.cluster.x-k8s.io,resources=ipaddresses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=metal.ironcore.dev,resources=serverclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
@@ -174,6 +185,24 @@ func (r *IroncoreMetalMachineReconciler) reconcileDelete(ctx context.Context, ma
 
 	// insert ServerClaim deletion logic here
 
+	ipList := &capiv1beta1.IPAddressClaimList{}
+	if err := r.Client.List(ctx, ipList, client.InNamespace(machineScope.IroncoreMetalMachine.Namespace)); meta.IsNoMatchError(err) {
+		machineScope.Logger.Info("Kind not found, assuming IP objects for that kind is absent", "kind", ipList.GetObjectKind().GroupVersionKind().Kind)
+		ipList = &capiv1beta1.IPAddressClaimList{}
+	} else if err != nil {
+		return ctrl.Result{}, fmt.Errorf("error listing ip resources: %s", err.Error())
+	}
+	for _, ip := range ipList.Items {
+		if strings.HasPrefix(ip.Name, machineScope.IroncoreMetalMachine.Name) {
+			if err := r.Client.Delete(ctx, &ip); meta.IsNoMatchError(err) {
+				machineScope.Logger.Info("Kind not found, assuming IP objects for that kind is absent", "kind", ipList.GetObjectKind().GroupVersionKind().Kind, "object", ip.Name)
+			} else if client.IgnoreNotFound(err) != nil {
+				// Unknown leads to short retry in machine controller
+				return ctrl.Result{}, fmt.Errorf("error deleting ip resource: %s", err.Error())
+			}
+		}
+	}
+
 	if modified, err := clientutils.PatchEnsureNoFinalizer(ctx, r.Client, machineScope.IroncoreMetalMachine, IroncoreMetalMachineFinalizer); !apierrors.IsNotFound(err) || modified {
 		return ctrl.Result{}, err
 	}
@@ -220,8 +249,15 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 		return ctrl.Result{}, err
 	}
 
+	machineScope.Info("Creating an ignition", "Machine", machineScope.IroncoreMetalMachine.Name)
+	ignition, err := r.createIgnition(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine, bootstrapSecret.Data[bootstrapDataKey])
+	if err != nil {
+		machineScope.Error(err, "failed to create an ignition")
+		return ctrl.Result{}, err
+	}
+
 	machineScope.Info("Creating IgnitionSecret", "Secret", machineScope.IroncoreMetalMachine.Name)
-	ignitionSecret, err := r.applyIgnitionSecret(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine, bootstrapSecret)
+	ignitionSecret, err := r.applyIgnitionSecret(ctx, machineScope.Logger, bootstrapSecret, ignition)
 	if err != nil {
 		machineScope.Error(err, "failed to create or patch ignition secret")
 		return ctrl.Result{}, err
@@ -254,10 +290,121 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 	return reconcile.Result{}, nil
 }
 
-func (r *IroncoreMetalMachineReconciler) applyIgnitionSecret(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, capidatasecret *corev1.Secret) (*corev1.Secret, error) {
-	dataSecret := capidatasecret
-	findAndReplaceIgnition(ironcoremetalmachine, dataSecret)
+func (r *IroncoreMetalMachineReconciler) createIgnition(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, ignition []byte) ([]byte, error) {
+	ignition = findAndReplaceIgnition(ironcoremetalmachine, ignition)
 
+	ignitionMap := make(map[string]any)
+	if err := json.Unmarshal(ignition, &ignitionMap); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal secret data: %w", err)
+	}
+
+	metaData, err := r.createMetaData(ctx, log, ironcoremetalmachine, ironcoremetalmachine.Spec.Metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to apply IPAddresses: %w", err)
+	}
+
+	if len(metaData) > 2 { // check if metaData is not an empty json object e.g. {}
+		metaDataConf := map[string]any{
+			"storage": map[string]any{
+				"files": []any{map[string]any{
+					"path": metaDataFile,
+					"mode": fileMode,
+					"contents": map[string]any{
+						"inline": string(metaData),
+					},
+				}},
+			},
+		}
+		// merge metaData configuration with ignition content
+		if err := mergo.Merge(&ignitionMap, metaDataConf, mergo.WithAppendSlice); err != nil {
+			return nil, fmt.Errorf("failed to merge metaData configuration with ignition content: %w", err)
+		}
+	}
+
+	return json.Marshal(ignitionMap)
+}
+
+func (r *IroncoreMetalMachineReconciler) createMetaData(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, metaData *apiextensionsv1.JSON) ([]byte, error) {
+	metaDataMap := make(map[string]any)
+	if metaData != nil {
+		if err := json.Unmarshal(metaData.Raw, &metaDataMap); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+		}
+	}
+
+	for _, networkRef := range ironcoremetalmachine.Spec.IPAMConfig {
+		ipAddrClaimName := fmt.Sprintf("%s-%s", ironcoremetalmachine.Name, networkRef.MetadataKey)
+		if len(ipAddrClaimName) > validation.DNS1123SubdomainMaxLength {
+			log.Info("IP address claim name is too long, it will be shortened which can cause name collisions", "name", ipAddrClaimName)
+			ipAddrClaimName = ipAddrClaimName[:validation.DNS1123SubdomainMaxLength]
+		}
+
+		ipAddrClaimKey := client.ObjectKey{Namespace: ironcoremetalmachine.Namespace, Name: ipAddrClaimName}
+		ipClaim := &capiv1beta1.IPAddressClaim{}
+		if err := r.Client.Get(ctx, ipAddrClaimKey, ipClaim); err != nil && !apierrors.IsNotFound(err) {
+			return nil, err
+
+		} else if err == nil {
+			log.V(3).Info("IP address claim found", "IP", ipAddrClaimKey.String())
+			if ipClaim.Status.AddressRef.Name == "" {
+				return nil, errors.New("IP address claim isn't ready")
+			}
+
+		} else if apierrors.IsNotFound(err) {
+			if networkRef.IPAMRef == nil {
+				return nil, errors.New("ipamRef of an ipamConfig is not set")
+			}
+			log.V(3).Info("creating IP address claim", "name", ipAddrClaimKey.String())
+			apiGroup := networkRef.IPAMRef.APIGroup
+			ipClaim = &capiv1beta1.IPAddressClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      ipAddrClaimKey.Name,
+					Namespace: ipAddrClaimKey.Namespace,
+				},
+				Spec: capiv1beta1.IPAddressClaimSpec{
+					PoolRef: corev1.TypedLocalObjectReference{
+						APIGroup: &apiGroup,
+						Kind:     networkRef.IPAMRef.Kind,
+						Name:     networkRef.IPAMRef.Name,
+					},
+				},
+			}
+			if err = r.Client.Create(ctx, ipClaim); err != nil {
+				return nil, fmt.Errorf("error creating IP: %w", err)
+			}
+
+			// Wait for the IP address claim to reach the ready state
+			err = wait.PollUntilContextTimeout(
+				ctx,
+				time.Millisecond*50,
+				time.Millisecond*340,
+				true,
+				func(ctx context.Context) (bool, error) {
+					if err = r.Client.Get(ctx, ipAddrClaimKey, ipClaim); err != nil && !apierrors.IsNotFound(err) {
+						return false, err
+					}
+					return ipClaim.Status.AddressRef.Name != "", nil
+				})
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		ipAddrKey := client.ObjectKey{Namespace: ipClaim.Namespace, Name: ipClaim.Status.AddressRef.Name}
+		ipAddr := &capiv1beta1.IPAddress{}
+		if err := r.Client.Get(ctx, ipAddrKey, ipAddr); err != nil {
+			return nil, err
+		}
+		metaDataMap[networkRef.MetadataKey] = map[string]any{
+			"ip":      ipAddr.Spec.Address,
+			"prefix":  ipAddr.Spec.Prefix,
+			"gateway": ipAddr.Spec.Gateway,
+		}
+	}
+	return json.Marshal(metaDataMap)
+}
+
+func (r *IroncoreMetalMachineReconciler) applyIgnitionSecret(ctx context.Context, log *logr.Logger, capidatasecret *corev1.Secret, ignition []byte) (*corev1.Secret, error) {
 	secretObj := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("ignition-%s", capidatasecret.Name),
@@ -268,7 +415,7 @@ func (r *IroncoreMetalMachineReconciler) applyIgnitionSecret(ctx context.Context
 			APIVersion: corev1.SchemeGroupVersion.String(),
 		},
 		Data: map[string][]byte{
-			DefaultIgnitionSecretKeyName: dataSecret.Data["value"],
+			DefaultIgnitionSecretKeyName: ignition,
 		},
 	}
 
@@ -345,12 +492,9 @@ func (r *IroncoreMetalMachineReconciler) ensureServerClaimBound(ctx context.Cont
 	return true, nil
 }
 
-func findAndReplaceIgnition(ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, capidatasecret *corev1.Secret) {
-	data := capidatasecret.Data["value"]
-
+func findAndReplaceIgnition(ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, data []byte) []byte {
 	// replace $${METAL_HOSTNAME} with machine name
-	hostname := "%24%24%7BMETAL_HOSTNAME%7D"
-	modifiedData := strings.ReplaceAll(string(data), hostname, ironcoremetalmachine.Name)
+	modifiedData := strings.ReplaceAll(string(data), metalHostnamePlaceholder, ironcoremetalmachine.Name)
 
-	capidatasecret.Data["value"] = []byte(modifiedData)
+	return []byte(modifiedData)
 }
