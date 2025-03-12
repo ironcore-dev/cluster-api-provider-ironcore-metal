@@ -184,12 +184,16 @@ func (r *IroncoreMetalMachineReconciler) reconcileDelete(ctx context.Context, ma
 
 	// insert ServerClaim deletion logic here
 
-	ip := &capiv1beta1.IPAddressClaim{ObjectMeta: metav1.ObjectMeta{
-		Name:      machineScope.IroncoreMetalMachine.Name,
-		Namespace: machineScope.IroncoreMetalMachine.Namespace,
-	}}
-	if err := r.Client.Delete(ctx, ip); client.IgnoreNotFound(err) != nil {
-		return ctrl.Result{}, fmt.Errorf("error deleting ip resource: %s", err.Error())
+	ipList := &capiv1beta1.IPAddressClaimList{}
+	if err := r.Client.List(ctx, ipList, client.InNamespace(machineScope.IroncoreMetalMachine.Namespace)); err != nil {
+		return ctrl.Result{}, fmt.Errorf("error listing ip resources: %s", err.Error())
+	}
+	for _, ip := range ipList.Items {
+		if strings.HasPrefix(ip.Name, machineScope.IroncoreMetalMachine.Name) {
+			if err := r.Client.Delete(ctx, &ip); client.IgnoreNotFound(err) != nil {
+				return ctrl.Result{}, fmt.Errorf("error deleting ip resource: %s", err.Error())
+			}
+		}
 	}
 
 	if modified, err := clientutils.PatchEnsureNoFinalizer(ctx, r.Client, machineScope.IroncoreMetalMachine, IroncoreMetalMachineFinalizer); !apierrors.IsNotFound(err) || modified {
