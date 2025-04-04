@@ -53,6 +53,11 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				Expect(metalSecret.Data).To(HaveKey(DefaultIgnitionSecretKeyName))
 				Expect(metalSecret.Data[DefaultIgnitionSecretKeyName]).To(Equal([]byte(expected)))
 			}
+
+			getOwnerReferences = func(obj client.Object) []metav1.OwnerReference {
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed())
+				return obj.GetOwnerReferences()
+			}
 		)
 
 		BeforeEach(func() {
@@ -255,6 +260,22 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				expectIgnition(
 					`{"name":"metal-machine","storage":{"files":[{"contents":{"compression":"","source":"data:;base64,` +
 						ign + `"},"filesystem":"root","mode":420,"path":"/var/lib/metal-cloud-config/metadata"}]}}`)
+			})
+
+			It("should set the owner reference on the ip address", func() {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				Eventually(func() []metav1.OwnerReference {
+					return getOwnerReferences(ipAddress)
+				}).Should(ContainElement(metav1.OwnerReference{
+					APIVersion: infrav1alpha1.GroupVersion.String(),
+					Kind:       "IroncoreMetalMachine",
+					Name:       metalMachine.Name,
+					UID:        metalMachine.UID,
+				}))
 			})
 
 			When("the metadata is present in the metal machine", func() {

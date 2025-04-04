@@ -64,7 +64,7 @@ const (
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinesets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=kubeadmcontrolplanes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=ipam.cluster.x-k8s.io,resources=ipaddressclaims,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=ipam.cluster.x-k8s.io,resources=ipaddresses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=ipam.cluster.x-k8s.io,resources=ipaddresses,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=metal.ironcore.dev,resources=serverclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
@@ -399,6 +399,13 @@ func (r *IroncoreMetalMachineReconciler) createMetaData(ctx context.Context, log
 		ipAddr := &capiv1beta1.IPAddress{}
 		if err := r.Client.Get(ctx, ipAddrKey, ipAddr); err != nil {
 			return nil, err
+		}
+		ipAddrCopy := ipAddr.DeepCopy()
+		if err := controllerutil.SetOwnerReference(ironcoremetalmachine, ipAddr, r.Client.Scheme()); err != nil {
+			return nil, fmt.Errorf("failed to set OwnerReference: %w", err)
+		}
+		if err := r.Client.Patch(ctx, ipAddr, client.MergeFrom(ipAddrCopy)); err != nil {
+			return nil, fmt.Errorf("failed to patch IPAddress: %w", err)
 		}
 		metaDataMap[networkRef.MetadataKey] = map[string]any{
 			"ip":      ipAddr.Spec.Address,
