@@ -14,7 +14,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -234,15 +233,13 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 						Kind:     "GlobalInClusterIPPool",
 					}}}
 
-				Expect(k8sClient.Create(ctx, ipAddressClaim)).To(Succeed())
-				Eventually(func() error {
-					if err := get(ipAddressClaim); err != nil {
-						return err
-					}
-					ipAddressClaim.Status.AddressRef.Name = ipAddress.Name
-					return k8sClient.Status().Update(ctx, ipAddressClaim)
-				}).Should(Succeed())
 				Expect(k8sClient.Create(ctx, ipAddress)).To(Succeed())
+				go func() {
+					defer GinkgoRecover()
+					Eventually(UpdateStatus(ipAddressClaim, func() {
+						ipAddressClaim.Status.AddressRef.Name = ipAddress.Name
+					})).Should(Succeed())
+				}()
 			})
 
 			AfterEach(func() {
@@ -260,6 +257,22 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				expectIgnition(
 					`{"name":"metal-machine","storage":{"files":[{"contents":{"compression":"","source":"data:;base64,` +
 						ign + `"},"filesystem":"root","mode":420,"path":"/var/lib/metal-cloud-config/metadata"}]}}`)
+			})
+
+			It("should set the owner reference on the ip address claim", func() {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				Eventually(func() []metav1.OwnerReference {
+					return getOwnerReferences(ipAddressClaim)
+				}).Should(ContainElement(metav1.OwnerReference{
+					APIVersion: infrav1alpha1.GroupVersion.String(),
+					Kind:       "IroncoreMetalMachine",
+					Name:       metalMachine.Name,
+					UID:        metalMachine.UID,
+				}))
 			})
 
 			It("should set the owner reference on the ip address", func() {
@@ -296,34 +309,6 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 						`{"name":"metal-machine","storage":{"files":[{"contents":{"compression":"","source":"data:;base64,` +
 							ign + `"},"filesystem":"root","mode":420,"path":"/var/lib/metal-cloud-config/metadata"}]}}`)
 				})
-			})
-		})
-
-		When("deletion timestamp is set", func() {
-			It("should delete the ip address claims", func() {
-				Expect(k8sClient.Delete(ctx, metalMachine)).To(Succeed())
-				ipAddressClaim1 := &capiv1beta1.IPAddressClaim{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      fmt.Sprintf("%s-1", metalMachine.Name),
-						Namespace: namespace,
-					},
-				}
-				Expect(k8sClient.Create(ctx, ipAddressClaim1)).To(Succeed())
-				ipAddressClaim2 := &capiv1beta1.IPAddressClaim{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      fmt.Sprintf("%s-2", metalMachine.Name),
-						Namespace: namespace,
-					},
-				}
-				Expect(k8sClient.Create(ctx, ipAddressClaim2)).To(Succeed())
-
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(metalMachine),
-				})
-				Expect(err).NotTo(HaveOccurred())
-
-				Eventually(Get(ipAddressClaim1)).Should(Satisfy(apierrors.IsNotFound))
-				Eventually(Get(ipAddressClaim2)).Should(Satisfy(apierrors.IsNotFound))
 			})
 		})
 	})
