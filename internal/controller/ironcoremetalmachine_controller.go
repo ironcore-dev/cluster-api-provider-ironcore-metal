@@ -21,7 +21,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -186,24 +185,6 @@ func (r *IroncoreMetalMachineReconciler) reconcileDelete(ctx context.Context, ma
 	machineScope.Info("Deleting IroncoreMetalMachine")
 
 	// insert ServerClaim deletion logic here
-
-	ipList := &capiv1beta1.IPAddressClaimList{}
-	if err := r.List(ctx, ipList, client.InNamespace(machineScope.IroncoreMetalMachine.Namespace)); meta.IsNoMatchError(err) {
-		machineScope.Info("Kind not found, assuming IP objects for that kind is absent", "kind", ipList.GetObjectKind().GroupVersionKind().Kind)
-		ipList = &capiv1beta1.IPAddressClaimList{}
-	} else if err != nil {
-		return ctrl.Result{}, fmt.Errorf("error listing ip resources: %s", err.Error())
-	}
-	for _, ip := range ipList.Items {
-		if strings.HasPrefix(ip.Name, machineScope.IroncoreMetalMachine.Name) {
-			if err := r.Delete(ctx, &ip); meta.IsNoMatchError(err) {
-				machineScope.Info("Kind not found, assuming IP objects for that kind is absent", "kind", ipList.GetObjectKind().GroupVersionKind().Kind, "object", ip.Name)
-			} else if client.IgnoreNotFound(err) != nil {
-				// Unknown leads to short retry in machine controller
-				return ctrl.Result{}, fmt.Errorf("error deleting ip resource: %s", err.Error())
-			}
-		}
-	}
 
 	if modified, err := clientutils.PatchEnsureNoFinalizer(ctx, r.Client, machineScope.IroncoreMetalMachine, IroncoreMetalMachineFinalizer); !apierrors.IsNotFound(err) || modified {
 		return ctrl.Result{}, err
@@ -373,6 +354,9 @@ func (r *IroncoreMetalMachineReconciler) createMetaData(ctx context.Context, log
 						Name:     networkRef.IPAMRef.Name,
 					},
 				},
+			}
+			if err := controllerutil.SetOwnerReference(ironcoremetalmachine, ipClaim, r.Client.Scheme()); err != nil {
+				return nil, fmt.Errorf("failed to set OwnerReference: %w", err)
 			}
 			if err = r.Create(ctx, ipClaim); err != nil {
 				return nil, fmt.Errorf("error creating IP: %w", err)
