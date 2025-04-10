@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -19,7 +20,6 @@ import (
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -232,8 +232,14 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 		return ctrl.Result{}, err
 	}
 
+	ipAddressClaims, IPAddressesMetadata, err := r.getOrCreateIPAddressClaims(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine)
+	if err != nil {
+		machineScope.Error(err, "failed to get or create IPAddressClaims")
+		return ctrl.Result{}, err
+	}
+
 	machineScope.Info("Creating an ignition", "Machine", machineScope.IroncoreMetalMachine.Name)
-	ignition, err := r.createIgnition(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine, bootstrapSecret.Data[bootstrapDataKey])
+	ignition, err := r.createIgnition(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine, bootstrapSecret.Data[bootstrapDataKey], IPAddressesMetadata)
 	if err != nil {
 		machineScope.Error(err, "failed to create an ignition")
 		return ctrl.Result{}, err
@@ -250,6 +256,12 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 	serverClaim, err := r.applyServerClaim(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine, ignitionSecret)
 	if err != nil {
 		machineScope.Error(err, "failed to create or patch ServerClaim")
+		return ctrl.Result{}, err
+	}
+
+	err = r.setServerClaimOwnership(ctx, serverClaim, ipAddressClaims)
+	if err != nil {
+		machineScope.Error(err, "failed to set ServerClaim ownership")
 		return ctrl.Result{}, err
 	}
 
@@ -273,7 +285,7 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 	return reconcile.Result{}, nil
 }
 
-func (r *IroncoreMetalMachineReconciler) createIgnition(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, ignition []byte) ([]byte, error) {
+func (r *IroncoreMetalMachineReconciler) createIgnition(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, ignition []byte, IPAddressesMetadata map[string]any) ([]byte, error) {
 	ignition = findAndReplaceIgnition(ironcoremetalmachine, ignition)
 
 	ignitionMap := make(map[string]any)
@@ -281,7 +293,14 @@ func (r *IroncoreMetalMachineReconciler) createIgnition(ctx context.Context, log
 		return nil, fmt.Errorf("failed to unmarshal secret data: %w", err)
 	}
 
-	metaData, err := r.createMetaData(ctx, log, ironcoremetalmachine, ironcoremetalmachine.Spec.Metadata)
+	metaDataMap := make(map[string]any)
+	if ironcoremetalmachine.Spec.Metadata != nil {
+		if err := json.Unmarshal(ironcoremetalmachine.Spec.Metadata.Raw, &metaDataMap); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+		}
+	}
+	maps.Copy(metaDataMap, IPAddressesMetadata)
+	metaData, err := json.Marshal(metaDataMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to apply IPAddresses: %w", err)
 	}
@@ -310,13 +329,9 @@ func (r *IroncoreMetalMachineReconciler) createIgnition(ctx context.Context, log
 	return json.Marshal(ignitionMap)
 }
 
-func (r *IroncoreMetalMachineReconciler) createMetaData(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, metaData *apiextensionsv1.JSON) ([]byte, error) {
-	metaDataMap := make(map[string]any)
-	if metaData != nil {
-		if err := json.Unmarshal(metaData.Raw, &metaDataMap); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
-		}
-	}
+func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine) ([]*capiv1beta1.IPAddressClaim, map[string]any, error) {
+	IPAddressClaims := []*capiv1beta1.IPAddressClaim{}
+	IPAddressesMetadata := make(map[string]any)
 
 	for _, networkRef := range ironcoremetalmachine.Spec.IPAMConfig {
 		ipAddrClaimName := fmt.Sprintf("%s-%s", ironcoremetalmachine.Name, networkRef.MetadataKey)
@@ -328,17 +343,17 @@ func (r *IroncoreMetalMachineReconciler) createMetaData(ctx context.Context, log
 		ipAddrClaimKey := client.ObjectKey{Namespace: ironcoremetalmachine.Namespace, Name: ipAddrClaimName}
 		ipClaim := &capiv1beta1.IPAddressClaim{}
 		if err := r.Get(ctx, ipAddrClaimKey, ipClaim); err != nil && !apierrors.IsNotFound(err) {
-			return nil, err
+			return nil, nil, err
 
 		} else if err == nil {
 			log.V(3).Info("IP address claim found", "IP", ipAddrClaimKey.String())
 			if ipClaim.Status.AddressRef.Name == "" {
-				return nil, errors.New("IP address claim isn't ready")
+				return nil, nil, fmt.Errorf("IP address claim %q has no IP address reference", ipAddrClaimKey.String())
 			}
 
 		} else if apierrors.IsNotFound(err) {
 			if networkRef.IPAMRef == nil {
-				return nil, errors.New("ipamRef of an ipamConfig is not set")
+				return nil, nil, errors.New("ipamRef of an ipamConfig is not set")
 			}
 			log.V(3).Info("creating IP address claim", "name", ipAddrClaimKey.String())
 			apiGroup := networkRef.IPAMRef.APIGroup
@@ -355,11 +370,8 @@ func (r *IroncoreMetalMachineReconciler) createMetaData(ctx context.Context, log
 					},
 				},
 			}
-			if err := controllerutil.SetOwnerReference(ironcoremetalmachine, ipClaim, r.Client.Scheme()); err != nil {
-				return nil, fmt.Errorf("failed to set OwnerReference: %w", err)
-			}
 			if err = r.Create(ctx, ipClaim); err != nil {
-				return nil, fmt.Errorf("error creating IP: %w", err)
+				return nil, nil, fmt.Errorf("error creating IP: %w", err)
 			}
 
 			// Wait for the IP address claim to reach the ready state
@@ -375,29 +387,31 @@ func (r *IroncoreMetalMachineReconciler) createMetaData(ctx context.Context, log
 					return ipClaim.Status.AddressRef.Name != "", nil
 				})
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 
 		ipAddrKey := client.ObjectKey{Namespace: ipClaim.Namespace, Name: ipClaim.Status.AddressRef.Name}
 		ipAddr := &capiv1beta1.IPAddress{}
 		if err := r.Get(ctx, ipAddrKey, ipAddr); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		ipAddrCopy := ipAddr.DeepCopy()
 		if err := controllerutil.SetOwnerReference(ironcoremetalmachine, ipAddr, r.Client.Scheme()); err != nil {
-			return nil, fmt.Errorf("failed to set OwnerReference: %w", err)
+			return nil, nil, fmt.Errorf("failed to set OwnerReference: %w", err)
 		}
 		if err := r.Patch(ctx, ipAddr, client.MergeFrom(ipAddrCopy)); err != nil {
-			return nil, fmt.Errorf("failed to patch IPAddress: %w", err)
+			return nil, nil, fmt.Errorf("failed to patch IPAddress: %w", err)
 		}
-		metaDataMap[networkRef.MetadataKey] = map[string]any{
+
+		IPAddressClaims = append(IPAddressClaims, ipClaim)
+		IPAddressesMetadata[networkRef.MetadataKey] = map[string]any{
 			"ip":      ipAddr.Spec.Address,
 			"prefix":  ipAddr.Spec.Prefix,
 			"gateway": ipAddr.Spec.Gateway,
 		}
 	}
-	return json.Marshal(metaDataMap)
+	return IPAddressClaims, IPAddressesMetadata, nil
 }
 
 func (r *IroncoreMetalMachineReconciler) applyIgnitionSecret(ctx context.Context, log *logr.Logger, capidatasecret *corev1.Secret, ignition []byte) (*corev1.Secret, error) {
@@ -473,6 +487,24 @@ func (r *IroncoreMetalMachineReconciler) patchIroncoreMetalMachineProviderID(ctx
 	}
 
 	log.Info("Successfully patched IroncoreMetalMachine with ProviderID", "ProviderID", providerID)
+	return nil
+}
+
+func (r *IroncoreMetalMachineReconciler) setServerClaimOwnership(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim, IPAddressClaims []*capiv1beta1.IPAddressClaim) error {
+	if err := r.Get(ctx, client.ObjectKeyFromObject(serverClaim), serverClaim); err != nil {
+		return err
+	}
+
+	for _, IPAddressClaim := range IPAddressClaims {
+		IPAddressClaimCopy := IPAddressClaim.DeepCopy()
+		if err := controllerutil.SetOwnerReference(serverClaim, IPAddressClaim, r.Client.Scheme()); err != nil {
+			return fmt.Errorf("failed to set OwnerReference: %w", err)
+		}
+		if err := r.Patch(ctx, IPAddressClaim, client.MergeFrom(IPAddressClaimCopy)); err != nil {
+			return fmt.Errorf("failed to patch IPAddressClaim: %w", err)
+		}
+	}
+
 	return nil
 }
 

@@ -265,13 +265,15 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
+				serverClaim := &metalv1alpha1.ServerClaim{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), serverClaim)).To(Succeed())
 				Eventually(func() []metav1.OwnerReference {
 					return getOwnerReferences(ipAddressClaim)
 				}).Should(ContainElement(metav1.OwnerReference{
-					APIVersion: infrav1alpha1.GroupVersion.String(),
-					Kind:       "IroncoreMetalMachine",
-					Name:       metalMachine.Name,
-					UID:        metalMachine.UID,
+					APIVersion: metalv1alpha1.GroupVersion.String(),
+					Kind:       "ServerClaim",
+					Name:       serverClaim.Name,
+					UID:        serverClaim.UID,
 				}))
 			})
 
