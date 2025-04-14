@@ -240,7 +240,7 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 	}
 
 	machineScope.Info("Creating an ignition", "Machine", machineScope.IroncoreMetalMachine.Name)
-	ignition, err := r.createIgnition(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine, bootstrapSecret.Data[bootstrapDataKey], IPAddressesMetadata)
+	ignition, err := r.createIgnition(machineScope.IroncoreMetalMachine, bootstrapSecret.Data[bootstrapDataKey], IPAddressesMetadata)
 	if err != nil {
 		machineScope.Error(err, "failed to create an ignition")
 		return ctrl.Result{}, err
@@ -286,7 +286,7 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 	return reconcile.Result{}, nil
 }
 
-func (r *IroncoreMetalMachineReconciler) createIgnition(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, ignition []byte, IPAddressesMetadata map[string]any) ([]byte, error) {
+func (r *IroncoreMetalMachineReconciler) createIgnition(ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, ignition []byte, IPAddressesMetadata map[string]any) ([]byte, error) {
 	ignition = findAndReplaceIgnition(ironcoremetalmachine, ignition)
 
 	ignitionMap := make(map[string]any)
