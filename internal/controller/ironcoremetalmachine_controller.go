@@ -53,6 +53,7 @@ const (
 	fileSystem                    = "root"
 	bootstrapDataKey              = "value"
 	metalHostnamePlaceholder      = "%24%24%7BMETAL_HOSTNAME%7D"
+	LabelKeyServerClaim           = "metal.ironcore.dev/server-claim"
 )
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=ironcoremetalmachines,verbs=get;list;watch;create;update;patch;delete
@@ -332,6 +333,7 @@ func (r *IroncoreMetalMachineReconciler) createIgnition(ctx context.Context, log
 func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine) ([]*capiv1beta1.IPAddressClaim, map[string]any, error) {
 	IPAddressClaims := []*capiv1beta1.IPAddressClaim{}
 	IPAddressesMetadata := make(map[string]any)
+	labelValue := ironcoremetalmachine.Namespace + "_" + ironcoremetalmachine.Name
 
 	for _, networkRef := range ironcoremetalmachine.Spec.IPAMConfig {
 		ipAddrClaimName := fmt.Sprintf("%s-%s", ironcoremetalmachine.Name, networkRef.MetadataKey)
@@ -351,6 +353,9 @@ func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.
 				return nil, nil, fmt.Errorf("IP address claim %q has no IP address reference", ipAddrClaimKey.String())
 			}
 
+			if ipClaim.Labels == nil || ipClaim.Labels[LabelKeyServerClaim] != labelValue {
+				return nil, nil, fmt.Errorf("IP address claim %q has no server claim label", ipAddrClaimKey.String())
+			}
 		} else if apierrors.IsNotFound(err) {
 			if networkRef.IPAMRef == nil {
 				return nil, nil, errors.New("ipamRef of an ipamConfig is not set")
@@ -361,6 +366,9 @@ func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      ipAddrClaimKey.Name,
 					Namespace: ipAddrClaimKey.Namespace,
+					Labels: map[string]string{
+						LabelKeyServerClaim: labelValue,
+					},
 				},
 				Spec: capiv1beta1.IPAddressClaimSpec{
 					PoolRef: corev1.TypedLocalObjectReference{
