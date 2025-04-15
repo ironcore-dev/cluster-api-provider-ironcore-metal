@@ -268,7 +268,8 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				serverClaim := &metalv1alpha1.ServerClaim{}
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), serverClaim)).To(Succeed())
 				Eventually(Object(ipAddressClaim)).Should(SatisfyAll(
-					HaveField("Labels", HaveKeyWithValue(LabelKeyServerClaim, serverClaim.Namespace+"_"+serverClaim.Name)),
+					HaveField("Labels", HaveKeyWithValue(LabelKeyServerClaimName, serverClaim.Name)),
+					HaveField("Labels", HaveKeyWithValue(LabelKeyServerClaimNamespace, serverClaim.Namespace)),
 					HaveField("OwnerReferences", ContainElement(
 						metav1.OwnerReference{
 							APIVersion: metalv1alpha1.GroupVersion.String(),

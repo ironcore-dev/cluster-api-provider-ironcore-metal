@@ -53,7 +53,8 @@ const (
 	fileSystem                    = "root"
 	bootstrapDataKey              = "value"
 	metalHostnamePlaceholder      = "%24%24%7BMETAL_HOSTNAME%7D"
-	LabelKeyServerClaim           = "metal.ironcore.dev/server-claim"
+	LabelKeyServerClaimName       = "metal.ironcore.dev/server-claim-name"
+	LabelKeyServerClaimNamespace  = "metal.ironcore.dev/server-claim-namespace"
 )
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=ironcoremetalmachines,verbs=get;list;watch;create;update;patch;delete
@@ -333,7 +334,6 @@ func (r *IroncoreMetalMachineReconciler) createIgnition(ironcoremetalmachine *in
 func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine) ([]*capiv1beta1.IPAddressClaim, map[string]any, error) {
 	IPAddressClaims := []*capiv1beta1.IPAddressClaim{}
 	IPAddressesMetadata := make(map[string]any)
-	labelValue := ironcoremetalmachine.Namespace + "_" + ironcoremetalmachine.Name
 
 	for _, networkRef := range ironcoremetalmachine.Spec.IPAMConfig {
 		ipAddrClaimName := fmt.Sprintf("%s-%s", ironcoremetalmachine.Name, networkRef.MetadataKey)
@@ -353,8 +353,16 @@ func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.
 				return nil, nil, fmt.Errorf("IP address claim %q has no IP address reference", ipAddrClaimKey.String())
 			}
 
-			if ipClaim.Labels == nil || ipClaim.Labels[LabelKeyServerClaim] != labelValue {
-				return nil, nil, fmt.Errorf("IP address claim %q has no server claim label", ipAddrClaimKey.String())
+			if ipClaim.Labels == nil {
+				return nil, nil, fmt.Errorf("IP address claim %q has no server claim labels", ipAddrClaimKey.String())
+			}
+			name, nameExists := ipClaim.Labels[LabelKeyServerClaimName]
+			namespace, namespaceExists := ipClaim.Labels[LabelKeyServerClaimNamespace]
+			if !nameExists || !namespaceExists {
+				return nil, nil, fmt.Errorf("IP address claim %q has no server claim labels", ipAddrClaimKey.String())
+			}
+			if name != ironcoremetalmachine.Name || namespace != ironcoremetalmachine.Namespace {
+				return nil, nil, fmt.Errorf("IP address claim %q's server claim labels don't match. Expected: name: %q, namespace: %q. Actual: name: %q, namespace: %q", ipAddrClaimKey.String(), ironcoremetalmachine.Name, ironcoremetalmachine.Namespace, name, namespace)
 			}
 		} else if apierrors.IsNotFound(err) {
 			if networkRef.IPAMRef == nil {
@@ -367,7 +375,8 @@ func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.
 					Name:      ipAddrClaimKey.Name,
 					Namespace: ipAddrClaimKey.Namespace,
 					Labels: map[string]string{
-						LabelKeyServerClaim: labelValue,
+						LabelKeyServerClaimName:      ironcoremetalmachine.Name,
+						LabelKeyServerClaimNamespace: ironcoremetalmachine.Namespace,
 					},
 				},
 				Spec: capiv1beta1.IPAddressClaimSpec{
