@@ -19,6 +19,9 @@ type IroncoreMetalClusterSpec struct {
 	// ControlPlaneEndpoint represents the endpoint used to communicate with the control plane.
 	// +optional
 	ControlPlaneEndpoint clusterv1.APIEndpoint `json:"controlPlaneEndpoint,omitempty"`
+	// Cluster network configuration.
+	// +optional
+	ClusterNetwork clusterv1.ClusterNetwork `json:"clusterNetwork,omitempty"`
 }
 
 // IroncoreMetalClusterStatus defines the observed state of IroncoreMetalCluster
