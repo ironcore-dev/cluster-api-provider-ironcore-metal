@@ -18,10 +18,10 @@ settings = {
     ],
     "preload_images_for_kind": True,
     "kind_cluster_name": "capm",
-    "capi_version": "v1.6.4",
-    "capi_ipam_version": "v1.0.1",
+    "capi_version": "v1.11.2",
+    "capi_ipam_version": "v1.0.3",
     "cert_manager_version": "v1.14.4",
-    "kubernetes_version": "v1.29.4",
+    "kubernetes_version": "v1.30.5",
     "metal_image": "ghcr.io/ironcore-dev/metal-operator-controller-manager:latest",
     "new_args": {
         "metal": [

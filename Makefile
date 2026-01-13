@@ -272,7 +272,7 @@ delete-workload-cluster: $(CLUSTERCTL) ## Deletes the development Kubernetes Clu
 
 .PHONY: kind-create
 kind-create: $(KUBECTL) ## create capm kind cluster if needed
-	./scripts/kind-with-registry.sh
+	./hack/kind-with-registry.sh
 
 .PHONY: kind-delete
 kind-delete: ## Destroys the "capm" kind cluster.
