@@ -27,8 +27,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
-	clusterapiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	capiv1beta1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1"
+	"k8s.io/utils/ptr"
+	clusterapiv1beta2 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	capiv1beta2 "sigs.k8s.io/cluster-api/api/ipam/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -177,7 +178,7 @@ func (r *IroncoreMetalMachineReconciler) SetupWithManager(mgr ctrl.Manager) erro
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1alpha1.IroncoreMetalMachine{}).
 		Watches(
-			&clusterapiv1beta1.Machine{},
+			&clusterapiv1beta2.Machine{},
 			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1alpha1.GroupVersion.WithKind("IroncoreMetalMachine"))),
 		).
 		Complete(r)
@@ -205,7 +206,7 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 		return ctrl.Result{}, nil
 	}
 
-	if !machineScope.Cluster.Status.InfrastructureReady {
+	if !ptr.Deref(machineScope.Cluster.Status.Initialization.InfrastructureProvisioned, false) {
 		machineScope.Info("Cluster infrastructure is not ready yet")
 		// TBD: update conditions
 		return ctrl.Result{}, nil
@@ -331,8 +332,8 @@ func (r *IroncoreMetalMachineReconciler) createIgnition(ironcoremetalmachine *in
 	return json.Marshal(ignitionMap)
 }
 
-func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine) ([]*capiv1beta1.IPAddressClaim, map[string]any, error) {
-	IPAddressClaims := []*capiv1beta1.IPAddressClaim{}
+func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine) ([]*capiv1beta2.IPAddressClaim, map[string]any, error) {
+	IPAddressClaims := []*capiv1beta2.IPAddressClaim{}
 	IPAddressesMetadata := make(map[string]any)
 
 	for _, networkRef := range ironcoremetalmachine.Spec.IPAMConfig {
@@ -343,7 +344,7 @@ func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.
 		}
 
 		ipAddrClaimKey := client.ObjectKey{Namespace: ironcoremetalmachine.Namespace, Name: ipAddrClaimName}
-		ipClaim := &capiv1beta1.IPAddressClaim{}
+		ipClaim := &capiv1beta2.IPAddressClaim{}
 		if err := r.Get(ctx, ipAddrClaimKey, ipClaim); err != nil && !apierrors.IsNotFound(err) {
 			return nil, nil, err
 
@@ -370,7 +371,7 @@ func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.
 			}
 			log.V(3).Info("creating IP address claim", "name", ipAddrClaimKey.String())
 			apiGroup := networkRef.IPAMRef.APIGroup
-			ipClaim = &capiv1beta1.IPAddressClaim{
+			ipClaim = &capiv1beta2.IPAddressClaim{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      ipAddrClaimKey.Name,
 					Namespace: ipAddrClaimKey.Namespace,
@@ -379,9 +380,9 @@ func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.
 						LabelKeyServerClaimNamespace: ironcoremetalmachine.Namespace,
 					},
 				},
-				Spec: capiv1beta1.IPAddressClaimSpec{
-					PoolRef: corev1.TypedLocalObjectReference{
-						APIGroup: &apiGroup,
+				Spec: capiv1beta2.IPAddressClaimSpec{
+					PoolRef: capiv1beta2.IPPoolReference{
+						APIGroup: apiGroup,
 						Kind:     networkRef.IPAMRef.Kind,
 						Name:     networkRef.IPAMRef.Name,
 					},
@@ -409,7 +410,7 @@ func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.
 		}
 
 		ipAddrKey := client.ObjectKey{Namespace: ipClaim.Namespace, Name: ipClaim.Status.AddressRef.Name}
-		ipAddr := &capiv1beta1.IPAddress{}
+		ipAddr := &capiv1beta2.IPAddress{}
 		if err := r.Get(ctx, ipAddrKey, ipAddr); err != nil {
 			return nil, nil, err
 		}
@@ -507,7 +508,7 @@ func (r *IroncoreMetalMachineReconciler) patchIroncoreMetalMachineProviderID(ctx
 	return nil
 }
 
-func (r *IroncoreMetalMachineReconciler) setServerClaimOwnership(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim, IPAddressClaims []*capiv1beta1.IPAddressClaim) error {
+func (r *IroncoreMetalMachineReconciler) setServerClaimOwnership(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim, IPAddressClaims []*capiv1beta2.IPAddressClaim) error {
 	// wait for the server claim to be visible in a cache
 	err := wait.PollUntilContextTimeout(
 		ctx,

@@ -11,8 +11,9 @@ import (
 	"github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	"github.com/pkg/errors"
 	"k8s.io/utils/ptr"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	"sigs.k8s.io/cluster-api/util/patch"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	v1beta1patch "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/patch"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -31,7 +32,7 @@ type MachineScopeParams struct {
 type MachineScope struct {
 	*logr.Logger
 	client               client.Client
-	patchHelper          *patch.Helper
+	patchHelper          *v1beta1patch.Helper
 	Cluster              *clusterv1.Cluster
 	Machine              *clusterv1.Machine
 	IroncoreMetalCluster *infrav1.IroncoreMetalCluster
@@ -71,7 +72,7 @@ func NewMachineScope(params MachineScopeParams) (*MachineScope, error) {
 		IroncoreMetalMachine: params.IroncoreMetalMachine,
 	}
 
-	helper, err := patch.NewHelper(params.IroncoreMetalMachine, params.Client)
+	helper, err := v1beta1patch.NewHelper(params.IroncoreMetalMachine, params.Client)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to init patch helper")
 	}
