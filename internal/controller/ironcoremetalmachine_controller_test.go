@@ -20,8 +20,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterapiv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
-	capiv1beta1 "sigs.k8s.io/cluster-api/api/ipam/v1beta1"
+	clusterapiv1beta2 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	capiv1beta2 "sigs.k8s.io/cluster-api/api/ipam/v1beta2"
 
 	infrav1alpha1 "github.com/ironcore-dev/cluster-api-provider-ironcore-metal/api/v1alpha1"
 	"github.com/ironcore-dev/controller-utils/clientutils"
@@ -36,8 +36,8 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			ctx                  = context.Background()
 			secret               *corev1.Secret
 			metalCluster         *infrav1alpha1.IroncoreMetalCluster
-			cluster              *clusterapiv1beta1.Cluster
-			machine              *clusterapiv1beta1.Machine
+			cluster              *clusterapiv1beta2.Cluster
+			machine              *clusterapiv1beta2.Machine
 			metalMachine         *infrav1alpha1.IroncoreMetalMachine
 			controllerReconciler *IroncoreMetalMachineReconciler
 			metalSecretNN        = types.NamespacedName{}
@@ -75,32 +75,45 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 					Name:      "metal-cluster",
 					Namespace: namespace,
 				},
-			}
-
-			cluster = &clusterapiv1beta1.Cluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "cluster",
-					Namespace: namespace,
-				},
-				Spec: clusterapiv1beta1.ClusterSpec{
-					InfrastructureRef: &corev1.ObjectReference{
-						APIVersion: infrav1alpha1.GroupVersion.String(),
-						Kind:       "IroncoreMetalCluster",
-						Name:       metalCluster.Name,
+				Spec: infrav1alpha1.IroncoreMetalClusterSpec{
+					ControlPlaneEndpoint: clusterapiv1beta2.APIEndpoint{
+						Host: "1.2.3.4",
+					},
+					ClusterNetwork: clusterapiv1beta2.ClusterNetwork{
+						ServiceDomain: "test.domain",
 					},
 				},
 			}
 
-			machine = &clusterapiv1beta1.Machine{
+			cluster = &clusterapiv1beta2.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "cluster",
+					Namespace: namespace,
+				},
+				Spec: clusterapiv1beta2.ClusterSpec{
+					InfrastructureRef: clusterapiv1beta2.ContractVersionedObjectReference{
+						APIGroup: infrav1alpha1.GroupVersion.Group,
+						Kind:     "IroncoreMetalCluster",
+						Name:     metalCluster.Name,
+					},
+				},
+			}
+
+			machine = &clusterapiv1beta2.Machine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "machine",
 					Namespace: namespace,
-					Labels:    map[string]string{clusterapiv1beta1.ClusterNameLabel: cluster.Name},
+					Labels:    map[string]string{clusterapiv1beta2.ClusterNameLabel: cluster.Name},
 				},
-				Spec: clusterapiv1beta1.MachineSpec{
+				Spec: clusterapiv1beta2.MachineSpec{
 					ClusterName: cluster.Name,
-					Bootstrap: clusterapiv1beta1.Bootstrap{
+					Bootstrap: clusterapiv1beta2.Bootstrap{
 						DataSecretName: &secret.Name,
+					},
+					InfrastructureRef: clusterapiv1beta2.ContractVersionedObjectReference{
+						Kind:     "IroncoreMetalMachine",
+						Name:     "test-capi-machine",
+						APIGroup: "infrastructure.cluster.x-k8s.io",
 					},
 				},
 			}
@@ -135,7 +148,8 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				if err := get(cluster); err != nil {
 					return err
 				}
-				cluster.Status.InfrastructureReady = true
+				infraProvisionedFlag := true
+				cluster.Status.Initialization.InfrastructureProvisioned = &infraProvisionedFlag
 				return k8sClient.Status().Update(ctx, cluster)
 			}).Should(Succeed())
 			Expect(k8sClient.Create(ctx, machine)).To(Succeed())
@@ -201,27 +215,36 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			const metadataKey = "meta-key"
 
 			var (
-				ipAddressClaim *capiv1beta1.IPAddressClaim
-				ipAddress      *capiv1beta1.IPAddress
+				ipAddressClaim *capiv1beta2.IPAddressClaim
+				ipAddress      *capiv1beta2.IPAddress
 			)
 
 			BeforeEach(func() {
-				ipAddressClaim = &capiv1beta1.IPAddressClaim{
+				ipAddressClaim = &capiv1beta2.IPAddressClaim{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      fmt.Sprintf("%s-%s", metalMachine.Name, metadataKey),
 						Namespace: namespace,
 					},
 				}
 
-				ipAddress = &capiv1beta1.IPAddress{
+				prefix := int32(24)
+				ipAddress = &capiv1beta2.IPAddress{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "ip-address",
 						Namespace: namespace,
 					},
-					Spec: capiv1beta1.IPAddressSpec{
+					Spec: capiv1beta2.IPAddressSpec{
 						Address: "10.11.12.13",
-						Prefix:  24,
+						Prefix:  &prefix,
 						Gateway: "10.11.12.1",
+						ClaimRef: capiv1beta2.IPAddressClaimReference{
+							Name: ipAddressClaim.Name,
+						},
+						PoolRef: capiv1beta2.IPPoolReference{
+							Name:     "test-ip-pool",
+							Kind:     "GlobalInClusterIPPool",
+							APIGroup: "ipam.cluster.x-k8s.io",
+						},
 					},
 				}
 
@@ -229,7 +252,7 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 					MetadataKey: metadataKey,
 					IPAMRef: &infrav1alpha1.IPAMObjectReference{
 						Name:     "pool",
-						APIGroup: "ipam.cluster.x-k8s.io/v1alpha2",
+						APIGroup: "ipam.cluster.x-k8s.io",
 						Kind:     "GlobalInClusterIPPool",
 					}}}
 

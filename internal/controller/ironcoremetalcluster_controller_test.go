@@ -16,8 +16,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	clusterv1b1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
-	"sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions"
+	clusterv1b2 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+
+	//nolint:staticcheck // we use deprecated package intentionally following the CAPI migration strategy
+	v1beta1conditions "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions"
+	//nolint:staticcheck // we use deprecated package intentionally following the CAPI migration strategy
+	v1beta2conditions "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -31,7 +35,7 @@ var _ = Describe("IroncoreMetalCluster Controller", func() {
 		clusterName        string
 		typeNamespacedName types.NamespacedName
 		ironcoreCluster    *infrav1.IroncoreMetalCluster
-		capiCluster        *clusterv1b1.Cluster
+		capiCluster        *clusterv1b2.Cluster
 		reconciler         *IroncoreMetalClusterReconciler
 	)
 
@@ -50,10 +54,17 @@ var _ = Describe("IroncoreMetalCluster Controller", func() {
 			Scheme: k8sClient.Scheme(),
 		}
 
-		capiCluster = &clusterv1b1.Cluster{
+		capiCluster = &clusterv1b2.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      clusterName,
 				Namespace: namespace,
+			},
+			Spec: clusterv1b2.ClusterSpec{
+				ControlPlaneRef: clusterv1b2.ContractVersionedObjectReference{
+					APIGroup: infrav1.GroupVersion.Group,
+					Kind:     "KubeadmControlPlane",
+					Name:     clusterName + "-cp",
+				},
 			},
 		}
 
@@ -66,11 +77,19 @@ var _ = Describe("IroncoreMetalCluster Controller", func() {
 				Namespace: namespace,
 				OwnerReferences: []metav1.OwnerReference{
 					{
-						APIVersion: clusterv1b1.GroupVersion.String(),
+						APIVersion: clusterv1b2.GroupVersion.String(),
 						Kind:       "Cluster",
 						Name:       capiCluster.Name,
 						UID:        capiCluster.UID,
 					},
+				},
+			},
+			Spec: infrav1.IroncoreMetalClusterSpec{
+				ControlPlaneEndpoint: clusterv1b2.APIEndpoint{
+					Host: "1.2.3.4",
+				},
+				ClusterNetwork: clusterv1b2.ClusterNetwork{
+					ServiceDomain: "test.domain",
 				},
 			},
 		}
@@ -114,9 +133,14 @@ var _ = Describe("IroncoreMetalCluster Controller", func() {
 			Expect(ironcoreCluster.Status.Ready).To(BeTrue())
 
 			By("Verifying the ClusterReady condition")
-			condition := conditions.Get(ironcoreCluster, infrav1.IroncoreMetalClusterReady)
-			Expect(condition).NotTo(BeNil())
-			Expect(condition.Status).To(Equal(corev1.ConditionTrue))
+			conditionBeta1 := v1beta1conditions.Get(ironcoreCluster, infrav1.IroncoreMetalClusterReady)
+			Expect(conditionBeta1).NotTo(BeNil())
+			Expect(conditionBeta1.Status).To(Equal(corev1.ConditionTrue))
+
+			By("Verifying the New V1Beta2 Ready condition")
+			conditionBeta2 := v1beta2conditions.Get(ironcoreCluster, string(infrav1.IroncoreMetalClusterReady))
+			Expect(conditionBeta2).NotTo(BeNil())
+			Expect(conditionBeta2.Status).To(Equal(metav1.ConditionTrue))
 		})
 
 		It("Should not reconcile if IroncoreMetalCluster has no OwnerReference to Cluster", func() {
@@ -135,7 +159,7 @@ var _ = Describe("IroncoreMetalCluster Controller", func() {
 			Expect(ironcoreCluster.Status.Ready).To(BeFalse())
 
 			By("Ensuring the ClusterReady condition is NOT set")
-			condition := conditions.Get(ironcoreCluster, infrav1.IroncoreMetalClusterReady)
+			condition := v1beta1conditions.Get(ironcoreCluster, infrav1.IroncoreMetalClusterReady)
 			Expect(condition).To(BeNil())
 		})
 
@@ -143,7 +167,7 @@ var _ = Describe("IroncoreMetalCluster Controller", func() {
 			if ironcoreCluster.Annotations == nil {
 				ironcoreCluster.Annotations = map[string]string{}
 			}
-			ironcoreCluster.Annotations[clusterv1b1.PausedAnnotation] = "true"
+			ironcoreCluster.Annotations[clusterv1b2.PausedAnnotation] = "true"
 			Expect(k8sClient.Create(ctx, ironcoreCluster)).To(Succeed())
 
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
@@ -158,7 +182,7 @@ var _ = Describe("IroncoreMetalCluster Controller", func() {
 			Expect(ironcoreCluster.Status.Ready).To(BeFalse())
 
 			By("Ensuring the ClusterReady condition is NOT set")
-			condition := conditions.Get(ironcoreCluster, infrav1.IroncoreMetalClusterReady)
+			condition := v1beta1conditions.Get(ironcoreCluster, infrav1.IroncoreMetalClusterReady)
 			Expect(condition).To(BeNil())
 		})
 	})
@@ -185,7 +209,7 @@ var _ = Describe("IroncoreMetalCluster Controller", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "machine-" + clusterName,
 					Namespace: namespace,
-					Labels:    map[string]string{clusterv1b1.ClusterNameLabel: clusterName},
+					Labels:    map[string]string{clusterv1b2.ClusterNameLabel: clusterName},
 				},
 			}
 			Expect(k8sClient.Create(ctx, machine)).To(Succeed())

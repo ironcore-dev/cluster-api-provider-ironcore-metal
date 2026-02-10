@@ -9,10 +9,11 @@ import (
 	"github.com/go-logr/logr"
 	infrav1 "github.com/ironcore-dev/cluster-api-provider-ironcore-metal/api/v1alpha1"
 	"github.com/pkg/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+
+	//nolint:staticcheck // we use deprecated package intentionally following the CAPI migration strategy
 	v1beta1conditions "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions"
-	v1beta2conditions "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions/v1beta2"
+	//nolint:staticcheck // we use deprecated package intentionally following the CAPI migration strategy
 	v1beta1patch "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/patch"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -102,16 +103,6 @@ func (s *ClusterScope) PatchObject() error {
 			infrav1.IroncoreMetalClusterReady,
 		),
 	)
-
-	readyCondition := v1beta1conditions.Get(s.IroncoreMetalCluster, clusterv1.ReadyCondition)
-	if readyCondition != nil {
-		v1beta2conditions.Set(s.IroncoreMetalCluster, metav1.Condition{
-			Type:    clusterv1.ReadyCondition,
-			Status:  metav1.ConditionStatus(readyCondition.Status),
-			Reason:  readyCondition.Reason,
-			Message: readyCondition.Message,
-		})
-	}
 
 	return s.patchHelper.Patch(context.TODO(), s.IroncoreMetalCluster)
 }
