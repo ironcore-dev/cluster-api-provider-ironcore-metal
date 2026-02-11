@@ -19,13 +19,7 @@ import (
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-
-	//nolint:staticcheck // we use deprecated package intentionally following the CAPI migration strategy
-	clusterapiv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
 	clusterapiv1beta2 "sigs.k8s.io/cluster-api/api/core/v1beta2"
-
-	//nolint:staticcheck // we use deprecated package intentionally following the CAPI migration strategy
-	capiv1beta1 "sigs.k8s.io/cluster-api/api/ipam/v1beta1"
 	capiv1beta2 "sigs.k8s.io/cluster-api/api/ipam/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -88,11 +82,9 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
-	Expect(clusterapiv1beta1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(clusterapiv1beta2.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(infrav1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(metalv1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
-	Expect(capiv1beta1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(capiv1beta2.AddToScheme(scheme.Scheme)).To(Succeed())
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})

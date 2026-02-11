@@ -3,12 +3,7 @@
 
 package v1alpha1
 
-import (
-	//nolint:staticcheck // we use deprecated package intentionally following the CAPI migration strategy
-	clusterv1b1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
-)
-
 const (
 	// IroncoreMetalClusterReady documents the status of IroncoreMetalCluster and its underlying resources.
-	IroncoreMetalClusterReady clusterv1b1.ConditionType = "ClusterReady"
+	IroncoreMetalClusterReady string = "ClusterReady"
 )

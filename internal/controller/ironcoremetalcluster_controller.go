@@ -16,11 +16,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
-
-	//nolint:staticcheck // we use deprecated package intentionally following the CAPI migration strategy
-	v1beta1conditions "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions"
-	//nolint:staticcheck // we use deprecated package intentionally following the CAPI migration strategy
-	v1beta2conditions "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions/v1beta2"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -137,9 +133,8 @@ func (r *IroncoreMetalClusterReconciler) reconcileNormal(_ context.Context, clus
 	// If the IroncoreMetalCluster doesn't have our finalizer, add it.
 	ctrlutil.AddFinalizer(clusterScope.IroncoreMetalCluster, infrav1.ClusterFinalizer)
 
-	v1beta1conditions.MarkTrue(clusterScope.IroncoreMetalCluster, infrav1.IroncoreMetalClusterReady)
-	v1beta2conditions.Set(clusterScope.IroncoreMetalCluster, metav1.Condition{
-		Type:    string(infrav1.IroncoreMetalClusterReady),
+	conditions.Set(clusterScope.IroncoreMetalCluster, metav1.Condition{
+		Type:    infrav1.IroncoreMetalClusterReady,
 		Status:  metav1.ConditionTrue,
 		Reason:  "Reconciled",
 		Message: "IronMetalCluster is ready",

@@ -12,10 +12,7 @@ import (
 	"github.com/pkg/errors"
 	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
-
-	//nolint:staticcheck // we use deprecated package intentionally following the CAPI migration strategy
-	v1beta1patch "sigs.k8s.io/cluster-api/util/deprecated/v1beta1/patch"
-
+	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -34,7 +31,7 @@ type MachineScopeParams struct {
 type MachineScope struct {
 	*logr.Logger
 	client               client.Client
-	patchHelper          *v1beta1patch.Helper
+	patchHelper          *patch.Helper
 	Cluster              *clusterv1.Cluster
 	Machine              *clusterv1.Machine
 	IroncoreMetalCluster *infrav1.IroncoreMetalCluster
@@ -74,7 +71,7 @@ func NewMachineScope(params MachineScopeParams) (*MachineScope, error) {
 		IroncoreMetalMachine: params.IroncoreMetalMachine,
 	}
 
-	helper, err := v1beta1patch.NewHelper(params.IroncoreMetalMachine, params.Client)
+	helper, err := patch.NewHelper(params.IroncoreMetalMachine, params.Client)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to init patch helper")
 	}
