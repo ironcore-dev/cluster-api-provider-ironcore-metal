@@ -68,7 +68,8 @@ test: manifests generate fmt vet envtest ## Run tests.
 
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
-test-e2e:
+test-e2e: manifests docker-build
+#	export PWD=$(shell pwd);
 	go test ./test/e2e/ -v -ginkgo.v
 
 .PHONY: lint
@@ -286,3 +287,13 @@ tilt-up: $(ENVSUBST) $(KUSTOMIZE) $(HELM) $(KUBECTL) kind-create ## start tilt a
 .PHONY: delete-cluster
 delete-cluster: delete-workload-cluster  ## Deletes the example kind cluster "capm"
 	kind delete cluster --name=$(KIND_CLUSTER_NAME)
+
+.PHONY: my
+my: manifests kustomize docker-build envsubst
+	$(KUSTOMIZE) build config/default > infrastructure-components.yaml
+
+	export PWD=$(shell pwd); \
+	export IMG=$(IMG); \
+	$(ENVSUBST) < test/e2e/config/ironcore.yaml > test/e2e/config/ironcore-rendered.yaml
+
+	go test ./test/e2e/ -v -ginkgo.v -timeout 60m -args -e2e.config="config/ironcore-rendered.yaml"
