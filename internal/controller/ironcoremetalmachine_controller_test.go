@@ -7,6 +7,9 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"time"
+
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -231,7 +234,8 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 						Name:     "pool",
 						APIGroup: "ipam.cluster.x-k8s.io/v1alpha2",
 						Kind:     "GlobalInClusterIPPool",
-					}}}
+					},
+				}}
 
 				Expect(k8sClient.Create(ctx, ipAddress)).To(Succeed())
 				go func() {
@@ -314,6 +318,57 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 						`{"name":"metal-machine","storage":{"files":[{"contents":{"compression":"","source":"data:;base64,` +
 							ign + `"},"filesystem":"root","mode":420,"path":"/var/lib/metal-cloud-config/metadata"}]}}`)
 				})
+			})
+		})
+		When("no owner set", func() {
+			It("should pass with empty", func() {
+				tmpOwner := metalMachine.ObjectMeta.OwnerReferences
+				metalMachine.ObjectMeta.OwnerReferences = []metav1.OwnerReference{}
+				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).To(BeNil())
+				Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 5 * time.Second}))
+				metalMachine.ObjectMeta.OwnerReferences = tmpOwner
+			})
+		})
+		When("no cluster label", func() {
+			It("should return empty ", func() {
+				tmpLabel := metalMachine.ObjectMeta.Labels
+				metalMachine.ObjectMeta.Labels = map[string]string{}
+				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).To(BeNil())
+				Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 5 * time.Second}))
+				metalMachine.ObjectMeta.Labels = tmpLabel
+			})
+		})
+		When("cluster not available", func() {
+			It("should return empty", func() {
+				metalCluster.Status.Ready = false
+				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				fmt.Fprintf(GinkgoWriter, "[DEBUG] Variable is:%v", out)
+				Expect(err).To(BeNil())
+				Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 5 * time.Second}))
+				metalCluster.Status.Ready = true
+			})
+		})
+		When("machine in fail state", func() {
+			It("should return empty", func() {
+				failMsg := "some failure MSG"
+				metalMachine.Status.FailureMessage = &failMsg
+				metalMachine.Status.FailureReason = "reason test"
+				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				fmt.Fprintf(GinkgoWriter, "[DEBUG] Variable is:%v", out)
+				Expect(err).To(BeNil())
+				Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 5 * time.Second}))
+				metalMachine.Status.FailureMessage = nil
+				metalMachine.Status.FailureReason = ""
 			})
 		})
 	})

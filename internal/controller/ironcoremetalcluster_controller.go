@@ -82,7 +82,7 @@ func (r *IroncoreMetalClusterReconciler) Reconcile(ctx context.Context, req ctrl
 
 	// Always close the scope when exiting this function, so we can persist any IroncoreMetalCluster changes.
 	defer func() {
-		if err := clusterScope.Close(); err != nil && err == nil {
+		if err := clusterScope.Close(); err != nil {
 			logger.Error(err, "failed to close IroncoreMetalCluster scope")
 		}
 	}()
