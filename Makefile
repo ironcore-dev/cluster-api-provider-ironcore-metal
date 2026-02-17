@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= registry.local/controller:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.32.0
 
@@ -68,8 +68,9 @@ test: manifests generate fmt vet envtest ## Run tests.
 
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
-test-e2e:
-	go test ./test/e2e/ -v -ginkgo.v
+test-e2e: manifests kustomize docker-build
+	$(KUSTOMIZE) build config/default > test/e2e/data/infrastructure-ironcore-metal/v0.3.0/infrastructure-components.yaml
+	go test -tags e2e ./test/e2e/ -v -ginkgo.v
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -178,7 +179,7 @@ GEN_CRD_API_REFERENCE_DOCS ?= $(LOCALBIN)/gen-crd-api-reference-docs-$(GEN_CRD_A
 KUSTOMIZE_VERSION ?= v5.4.1
 KUBECTL_VERSION ?= v1.31.1
 HELM_VERSION ?= v3.15.3
-CONTROLLER_TOOLS_VERSION ?= v0.17.2
+CONTROLLER_TOOLS_VERSION ?= v0.19.0
 ENVTEST_VERSION ?= release-0.20
 ENVSUBST_VER := v1.2.0
 GOLANGCI_LINT_VERSION ?= v2.7

@@ -5,13 +5,16 @@ package scope
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	infrav1 "github.com/ironcore-dev/cluster-api-provider-ironcore-metal/api/v1alpha1"
 	"github.com/pkg/errors"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -94,11 +97,13 @@ func (s *ClusterScope) KubernetesClusterName() string {
 // PatchObject persists the cluster configuration and status.
 func (s *ClusterScope) PatchObject() error {
 	// always update the readyCondition.
-	conditions.SetSummary(s.IroncoreMetalCluster,
-		conditions.WithConditions(
+	if err := conditions.SetSummaryCondition(s.IroncoreMetalCluster, s.IroncoreMetalCluster, clusterv1.ReadyCondition,
+		conditions.ForConditionTypes{
 			infrav1.IroncoreMetalClusterReady,
-		),
-	)
+		},
+	); err != nil {
+		return fmt.Errorf("unable to set summary condition: %w", err)
+	}
 
 	return s.patchHelper.Patch(context.TODO(), s.IroncoreMetalCluster)
 }

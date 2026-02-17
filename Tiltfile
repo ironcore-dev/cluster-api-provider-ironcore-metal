@@ -246,7 +246,7 @@ def capm():
     # Set up an image build for the provider. The live update configuration syncs the output from the local_resource
     # build into the container.
     docker_build(
-        ref = "controller:latest",
+        ref = "registry.local/controller:latest",
         context = "./.tiltbuild/",
         dockerfile_contents = dockerfile_contents,
         target = "tilt",

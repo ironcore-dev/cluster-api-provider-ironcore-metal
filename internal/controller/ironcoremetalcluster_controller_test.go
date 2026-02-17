@@ -12,11 +12,10 @@ import (
 
 	"github.com/google/uuid"
 	infrav1 "github.com/ironcore-dev/cluster-api-provider-ironcore-metal/api/v1alpha1"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -55,6 +54,13 @@ var _ = Describe("IroncoreMetalCluster Controller", func() {
 				Name:      clusterName,
 				Namespace: namespace,
 			},
+			Spec: clusterv1.ClusterSpec{
+				ControlPlaneRef: clusterv1.ContractVersionedObjectReference{
+					APIGroup: infrav1.GroupVersion.Group,
+					Kind:     "KubeadmControlPlane",
+					Name:     clusterName + "-cp",
+				},
+			},
 		}
 
 		ctrlutil.AddFinalizer(capiCluster, "cluster.cluster.x-k8s.io")
@@ -71,6 +77,14 @@ var _ = Describe("IroncoreMetalCluster Controller", func() {
 						Name:       capiCluster.Name,
 						UID:        capiCluster.UID,
 					},
+				},
+			},
+			Spec: infrav1.IroncoreMetalClusterSpec{
+				ControlPlaneEndpoint: clusterv1.APIEndpoint{
+					Host: "1.2.3.4",
+				},
+				ClusterNetwork: clusterv1.ClusterNetwork{
+					ServiceDomain: "test.domain",
 				},
 			},
 		}
@@ -116,7 +130,12 @@ var _ = Describe("IroncoreMetalCluster Controller", func() {
 			By("Verifying the ClusterReady condition")
 			condition := conditions.Get(ironcoreCluster, infrav1.IroncoreMetalClusterReady)
 			Expect(condition).NotTo(BeNil())
-			Expect(condition.Status).To(Equal(corev1.ConditionTrue))
+			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
+
+			By("Verifying the summarized Ready condition")
+			condition = conditions.Get(ironcoreCluster, clusterv1.ReadyCondition)
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
 		})
 
 		It("Should not reconcile if IroncoreMetalCluster has no OwnerReference to Cluster", func() {
@@ -136,6 +155,10 @@ var _ = Describe("IroncoreMetalCluster Controller", func() {
 
 			By("Ensuring the ClusterReady condition is NOT set")
 			condition := conditions.Get(ironcoreCluster, infrav1.IroncoreMetalClusterReady)
+			Expect(condition).To(BeNil())
+
+			By("Ensuring the summarized Ready condition is not set")
+			condition = conditions.Get(ironcoreCluster, clusterv1.ReadyCondition)
 			Expect(condition).To(BeNil())
 		})
 
@@ -159,6 +182,10 @@ var _ = Describe("IroncoreMetalCluster Controller", func() {
 
 			By("Ensuring the ClusterReady condition is NOT set")
 			condition := conditions.Get(ironcoreCluster, infrav1.IroncoreMetalClusterReady)
+			Expect(condition).To(BeNil())
+
+			By("Ensuring the summarized Ready condition is not set")
+			condition = conditions.Get(ironcoreCluster, clusterv1.ReadyCondition)
 			Expect(condition).To(BeNil())
 		})
 	})
