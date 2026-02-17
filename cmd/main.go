@@ -120,6 +120,7 @@ func main() {
 	}
 
 	// Initialize event recorder.
+	//nolint:staticcheck // TODO: Update when cluster-api/util/record supports the new EventRecorder API
 	record.InitFromRecorder(mgr.GetEventRecorderFor("metal-controller"))
 
 	// Set up the context that's going to be used in controllers and for the manager.
