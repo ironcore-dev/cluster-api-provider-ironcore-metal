@@ -1,0 +1,17 @@
+resources:
+- ../default
+
+images:
+- name: controller:latest
+  newName: registry.local/controller
+  newTag: latest
+
+patches:
+- target:
+    kind: Deployment
+    name: controller-manager
+    namespace: system
+  patch: |-
+    - op: replace
+      path: /spec/template/spec/containers/0/imagePullPolicy
+      value: IfNotPresent
