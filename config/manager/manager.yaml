@@ -58,8 +58,7 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
-        image: registry.local/controller:latest
-        imagePullPolicy: IfNotPresent
+        image: controller:latest
         name: manager
         securityContext:
           allowPrivilegeEscalation: false
