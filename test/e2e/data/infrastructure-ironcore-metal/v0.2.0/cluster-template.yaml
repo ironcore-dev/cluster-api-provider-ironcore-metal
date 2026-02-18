@@ -1,0 +1,171 @@
+# SPDX-FileCopyrightText: 2026 SAP SE or an SAP affiliate company and IronCore contributors
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks: ["${POD_CIDR:=192.168.0.0/16}"]
+    services:
+      cidrBlocks: ["${POD_CIDR:=10.96.0.0/12}"]
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    kind: KubeadmControlPlane
+    name: "${CLUSTER_NAME}-cp"
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: IroncoreMetalCluster
+    name: "${CLUSTER_NAME}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: IroncoreMetalCluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  controlPlaneEndpoint:
+    host: foo
+    port: 443
+---
+kind: KubeadmControlPlane
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+metadata:
+  name: "${CLUSTER_NAME}-cp"
+  namespace: "${NAMESPACE}"
+spec:
+  replicas: ${CONTROL_PLANE_MACHINE_COUNT}
+  version: "${KUBERNETES_VERSION}"
+  machineTemplate:
+    infrastructureRef:
+      kind: IroncoreMetalMachineTemplate
+      apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+      name: "${CLUSTER_NAME}-cp"
+  kubeadmConfigSpec:
+    initConfiguration:
+      nodeRegistration:
+        name: $${METAL_HOSTNAME}
+        kubeletExtraArgs:
+          cloud-provider: external
+          provider-id: "ironcore://$${METAL_HOSTNAME}"
+    clusterConfiguration:
+      apiServer:
+        extraArgs:
+          cloud-provider: external
+      controllerManager:
+        extraArgs:
+          cloud-provider: external
+    joinConfiguration:
+      nodeRegistration:
+        name: $${METAL_HOSTNAME}
+        kubeletExtraArgs:
+          cloud-provider: external
+          provider-id: "ironcore://$${METAL_HOSTNAME}"
+    format: ignition
+    ignition:
+      containerLinuxConfig:
+        additionalConfig: |-
+          storage:
+            files:
+            - path: /opt/testdir/testfile
+              filesystem: root
+              mode: 0644
+              contents:
+                inline: |
+                  [TEST]
+                  test=1
+    preKubeadmCommands:
+      - hostnamectl set-hostname $${METAL_HOSTNAME}
+
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: IroncoreMetalMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-cp"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      serverSelector:
+        matchLabels:
+          server: metal
+      image: ghcr.io/ironcore-dev/os-images/gardenlinux:1443.3
+      metadata:
+        foo: bar
+      ipamConfig:
+        - metadataKey: bond
+          ipamRef:
+            apiGroup: ipam.cluster.x-k8s.io
+            kind: GlobalInClusterIPPool
+            name: globalinclusterippool-sample-cp
+
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  clusterName: "${CLUSTER_NAME}"
+  replicas: ${WORKER_MACHINE_COUNT}
+  selector:
+    matchLabels:
+  template:
+    metadata:
+      labels:
+    spec:
+      clusterName: "${CLUSTER_NAME}"
+      version: "${KUBERNETES_VERSION}"
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          kind: KubeadmConfigTemplate
+          name: "${CLUSTER_NAME}-md-0"
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: IroncoreMetalMachineTemplate
+        name: "${CLUSTER_NAME}-md-0"
+
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          name: $${METAL_HOSTNAME}
+          kubeletExtraArgs:
+            cloud-provider: external
+            provider-id: "ironcore://$${METAL_HOSTNAME}"
+      format: ignition
+      preKubeadmCommands:
+        - hostnamectl set-hostname $${METAL_HOSTNAME}
+
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: IroncoreMetalMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      serverSelector:
+        matchLabels:
+          server: metal
+      image: ghcr.io/ironcore-dev/os-images/gardenlinux:1443.3
+      metadata:
+        foo: bar
+      ipamConfig:
+        - metadataKey: bond
+          ipamRef:
+            apiGroup: ipam.cluster.x-k8s.io
+            kind: GlobalInClusterIPPool
+            name: globalinclusterippool-sample-cp

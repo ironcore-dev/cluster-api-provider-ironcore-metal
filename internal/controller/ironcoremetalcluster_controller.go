@@ -10,9 +10,10 @@ import (
 	"github.com/ironcore-dev/cluster-api-provider-ironcore-metal/internal/scope"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -132,7 +133,12 @@ func (r *IroncoreMetalClusterReconciler) reconcileNormal(_ context.Context, clus
 	// If the IroncoreMetalCluster doesn't have our finalizer, add it.
 	ctrlutil.AddFinalizer(clusterScope.IroncoreMetalCluster, infrav1.ClusterFinalizer)
 
-	conditions.MarkTrue(clusterScope.IroncoreMetalCluster, infrav1.IroncoreMetalClusterReady)
+	conditions.Set(clusterScope.IroncoreMetalCluster, metav1.Condition{
+		Type:    infrav1.IroncoreMetalClusterReady,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Reconciled",
+		Message: "IronMetalCluster is ready",
+	})
 
 	clusterScope.IroncoreMetalCluster.Status.Ready = true
 

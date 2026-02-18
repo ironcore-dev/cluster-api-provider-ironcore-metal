@@ -1,0 +1,71 @@
+# SPDX-FileCopyrightText: 2026 SAP SE or an SAP affiliate company and IronCore contributors
+# SPDX-License-Identifier: Apache-2.0
+
+images:
+  - name: "registry.local/controller:latest"
+    loadBehavior: mustLoad
+
+providers:
+  - name: ironcore-metal
+    type: InfrastructureProvider
+    versions:
+      - name: v0.2.0
+        type: url
+        contract: v1beta1
+        value: "../data/infrastructure-ironcore-metal/v0.2.0/infrastructure-components.yaml"
+        files:
+          - sourcePath: "../data/infrastructure-ironcore-metal/v0.2.0/metadata.yaml"
+            targetName: "metadata.yaml"
+          - sourcePath: "../data/infrastructure-ironcore-metal/v0.2.0/cluster-template.yaml"
+            targetName: "cluster-template.yaml"
+
+      - name: v0.3.0
+        type: url
+        contract: v1beta2
+        value: "../data/infrastructure-ironcore-metal/v0.3.0/infrastructure-components.yaml"
+        files:
+          - sourcePath: "../data/infrastructure-ironcore-metal/v0.3.0/metadata.yaml"
+            targetName: "metadata.yaml"
+          - sourcePath: "../data/infrastructure-ironcore-metal/v0.3.0/cluster-template.yaml"
+            targetName: "cluster-template.yaml"
+
+  - name: cluster-api
+    type: CoreProvider
+    versions:
+      - name: v1.11.2
+        value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.2/core-components.yaml"
+        type: url
+        files:
+          - sourcePath: "../data/shared/capi/v1.11.2/metadata.yaml"
+            targetName: "metadata.yaml"
+  - name: kubeadm
+    type: BootstrapProvider
+    versions:
+      - name: v1.11.2
+        value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.2/bootstrap-components.yaml"
+        type: url
+        files:
+        - sourcePath: "../data/shared/capi/v1.11.2/metadata.yaml"
+          targetName: "metadata.yaml"
+
+  - name: kubeadm
+    type: ControlPlaneProvider
+    versions:
+      - name: v1.11.2
+        value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.2/control-plane-components.yaml"
+        type: url
+        files:
+          - sourcePath: "../data/shared/capi/v1.11.2/metadata.yaml"
+            targetName: "metadata.yaml"
+
+variables:
+  KUBERNETES_VERSION: "v1.34.0"
+  KUBERNETES_VERSION_MANAGEMENT: "v1.34.0"
+  CONTROL_PLANE_MACHINE_COUNT: "1"
+  WORKER_MACHINE_COUNT: "1"
+  CNI_RESOURCES: "https://raw.githubusercontent.com/projectcalico/calico/v3.31.3/manifests/calico.yaml"
+  EXP_KUBEADM_BOOTSTRAP_FORMAT_IGNITION: "true"
+  CAPI_VERSION: "v1.11.2"
+  KUBEADM_VERSION: "v1.11.2"
+  OLD_PROVIDER_VERSION: "v0.2.0"
+  NEW_PROVIDER_VERSION: "v0.3.0"

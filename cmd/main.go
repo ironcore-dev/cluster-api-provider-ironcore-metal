@@ -8,7 +8,7 @@ import (
 	"flag"
 	"os"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/record"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -28,7 +28,7 @@ import (
 	infrastructurev1alpha1 "github.com/ironcore-dev/cluster-api-provider-ironcore-metal/api/v1alpha1"
 	"github.com/ironcore-dev/cluster-api-provider-ironcore-metal/internal/controller"
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
-	capiv1beta1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1"
+	capiv1beta1 "sigs.k8s.io/cluster-api/api/ipam/v1beta2"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -120,6 +120,7 @@ func main() {
 	}
 
 	// Initialize event recorder.
+	//nolint:staticcheck // TODO: Update when cluster-api/util/record supports the new EventRecorder API
 	record.InitFromRecorder(mgr.GetEventRecorderFor("metal-controller"))
 
 	// Set up the context that's going to be used in controllers and for the manager.
