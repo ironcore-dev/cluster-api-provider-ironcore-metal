@@ -200,12 +200,6 @@ func (r *IroncoreMetalMachineReconciler) reconcileDelete(ctx context.Context, ma
 func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, machineScope *scope.MachineScope, clusterScope *scope.ClusterScope) (reconcile.Result, error) {
 	clusterScope.Logger.V(4).Info("Reconciling IroncoreMetalMachine")
 
-	// If the IroncoreMetalMachine is in an error state, return early.
-	if machineScope.HasFailed() {
-		machineScope.Info("Error state detected, skipping reconciliation")
-		return ctrl.Result{}, nil
-	}
-
 	if !ptr.Deref(machineScope.Cluster.Status.Initialization.InfrastructureProvisioned, false) {
 		machineScope.Info("Cluster infrastructure is not ready yet")
 		// TBD: update conditions
@@ -282,7 +276,8 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 		return ctrl.Result{}, err
 	}
 
-	machineScope.SetReady()
+	machineScope.IroncoreMetalMachine.Status.Ready = true                              // deprecated v1beta1
+	machineScope.IroncoreMetalMachine.Status.Initialization.Provisioned = ptr.To(true) // v1beta2
 	machineScope.Info("IroncoreMetalMachine is ready")
 
 	return reconcile.Result{}, nil
@@ -497,7 +492,7 @@ func (r *IroncoreMetalMachineReconciler) patchIroncoreMetalMachineProviderID(ctx
 	providerID := fmt.Sprintf("metal://%s/%s", serverClaim.Namespace, serverClaim.Name)
 
 	patch := client.MergeFrom(ironcoremetalmachine.DeepCopy())
-	ironcoremetalmachine.Spec.ProviderID = &providerID
+	ironcoremetalmachine.Spec.ProviderID = providerID
 
 	if err := r.Patch(ctx, ironcoremetalmachine, patch); err != nil {
 		log.Error(err, "failed to patch IroncoreMetalMachine with ProviderID")
