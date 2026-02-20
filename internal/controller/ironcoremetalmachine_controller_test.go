@@ -7,6 +7,9 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"time"
+
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -254,7 +257,8 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 						Name:     "pool",
 						APIGroup: "ipam.cluster.x-k8s.io",
 						Kind:     "GlobalInClusterIPPool",
-					}}}
+					},
+				}}
 
 				Expect(k8sClient.Create(ctx, ipAddress)).To(Succeed())
 				go func() {
@@ -337,6 +341,195 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 						`{"name":"metal-machine","storage":{"files":[{"contents":{"compression":"","source":"data:;base64,` +
 							ign + `"},"filesystem":"root","mode":420,"path":"/var/lib/metal-cloud-config/metadata"}]}}`)
 				})
+			})
+		})
+	})
+})
+
+var _ = Describe("IroncoreMetalMachine Controller", func() {
+	When("not all resources are present to reconcile and fail", func() {
+		const namespace = "default"
+
+		var (
+			ctx                  = context.Background()
+			secret               *corev1.Secret
+			metalCluster         *infrav1alpha1.IroncoreMetalCluster
+			cluster              *clusterapiv1beta2.Cluster
+			machine              *clusterapiv1beta2.Machine
+			metalMachine         *infrav1alpha1.IroncoreMetalMachine
+			metalMachineOwner    *infrav1alpha1.IroncoreMetalMachine
+			controllerReconciler *IroncoreMetalMachineReconciler
+			createOnce           bool
+
+			get = func(obj client.Object) error {
+				return k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)
+			}
+		)
+
+		BeforeEach(func() {
+			secret = &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "secret",
+					Namespace: namespace,
+				},
+				Data: map[string][]byte{
+					bootstrapDataKey: []byte(fmt.Sprintf(`{"name": "%s"}`, metalHostnamePlaceholder)),
+				},
+			}
+			metalCluster = &infrav1alpha1.IroncoreMetalCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "metal-cluster",
+					Namespace: namespace,
+				},
+				Spec: infrav1alpha1.IroncoreMetalClusterSpec{
+					ControlPlaneEndpoint: clusterapiv1beta2.APIEndpoint{
+						Host: "1.2.3.4",
+					},
+					ClusterNetwork: clusterapiv1beta2.ClusterNetwork{
+						ServiceDomain: "test.domain",
+					},
+				},
+			}
+
+			cluster = &clusterapiv1beta2.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "cluster",
+					Namespace: namespace,
+				},
+				Spec: clusterapiv1beta2.ClusterSpec{
+					InfrastructureRef: clusterapiv1beta2.ContractVersionedObjectReference{
+						APIGroup: infrav1alpha1.GroupVersion.Group,
+						Kind:     "IroncoreMetalCluster",
+						Name:     metalCluster.Name,
+					},
+				},
+			}
+
+			machine = &clusterapiv1beta2.Machine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "machine-test",
+					Namespace: namespace,
+					Labels:    map[string]string{clusterapiv1beta2.ClusterNameLabel: cluster.Name},
+				},
+				Spec: clusterapiv1beta2.MachineSpec{
+					ClusterName: cluster.Name,
+					Bootstrap: clusterapiv1beta2.Bootstrap{
+						DataSecretName: &secret.Name,
+					},
+					InfrastructureRef: clusterapiv1beta2.ContractVersionedObjectReference{
+						Kind:     "IroncoreMetalMachine",
+						Name:     "test-capi-machine2",
+						APIGroup: "infrastructure.cluster.x-k8s.io",
+					},
+				},
+			}
+
+			metalMachineOwner = &infrav1alpha1.IroncoreMetalMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "metal-machine-test-owner",
+					Namespace: namespace,
+				},
+			}
+			metalMachine = &infrav1alpha1.IroncoreMetalMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "metal-machine-test",
+					Namespace: namespace,
+				},
+			}
+			controllerReconciler = &IroncoreMetalMachineReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+		})
+
+		JustBeforeEach(func() {
+			Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+			Expect(k8sClient.Create(ctx, metalCluster)).To(Succeed())
+			Eventually(func() error {
+				if err := get(metalCluster); err != nil {
+					return err
+				}
+				metalCluster.Status.Ready = true
+				return k8sClient.Status().Update(ctx, metalCluster)
+			}).Should(Succeed())
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+			Eventually(func() error {
+				if err := get(cluster); err != nil {
+					return err
+				}
+				infraProvisionedFlag := true
+				cluster.Status.Initialization.InfrastructureProvisioned = &infraProvisionedFlag
+				return k8sClient.Status().Update(ctx, cluster)
+			}).Should(Succeed())
+			Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+			Expect(controllerutil.SetOwnerReference(machine, metalMachine, k8sClient.Scheme())).To(Succeed())
+			if !createOnce {
+				Expect(k8sClient.Create(ctx, metalMachine)).To(Succeed())
+				Eventually(func() error {
+					if err := get(metalMachine); err != nil {
+						return err
+					}
+					return clientutils.PatchAddFinalizer(ctx, k8sClient, metalMachine, IroncoreMetalMachineFinalizer)
+				}).Should(Succeed())
+				Expect(controllerutil.SetOwnerReference(machine, metalMachineOwner, k8sClient.Scheme())).To(Succeed())
+				Expect(k8sClient.Create(ctx, metalMachineOwner)).To(Succeed())
+				Eventually(func() error {
+					if err := get(metalMachineOwner); err != nil {
+						return err
+					}
+					return clientutils.PatchAddFinalizer(ctx, k8sClient, metalMachineOwner, IroncoreMetalMachineFinalizer)
+				}).Should(Succeed())
+				createOnce = true
+			}
+		})
+
+		AfterEach(func() {
+			Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, metalCluster)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, machine)).To(Succeed())
+		})
+
+		When("no owner set", func() {
+			It("should pass with empty", func() {
+				metalMachineOwner.OwnerReferences = []metav1.OwnerReference{}
+				Expect(k8sClient.Update(ctx, metalMachineOwner)).To(Succeed())
+				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachineOwner),
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(Equal(ctrl.Result{}))
+				Expect(k8sClient.Delete(ctx, metalMachineOwner)).To(Succeed())
+			})
+		})
+		When("no cluster label", func() {
+			It("should return empty ", func() {
+				metalMachine.Labels = map[string]string{}
+				tmpMAchine := &infrav1alpha1.IroncoreMetalMachine{}
+				k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), tmpMAchine)
+				metalMachine.ObjectMeta = tmpMAchine.ObjectMeta
+				Expect(k8sClient.Update(ctx, metalMachine)).To(Succeed())
+				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 5 * time.Second}))
+			})
+		})
+		When("machine in fail state", func() {
+			It("should return empty", func() {
+				failMsg := "some failure MSG"
+				tmpMAchine := &infrav1alpha1.IroncoreMetalMachine{}
+				metalMachine.Status.FailureMessage = &failMsg
+				metalMachine.Status.FailureReason = "reason test"
+				k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), tmpMAchine)
+				metalMachine.ObjectMeta = tmpMAchine.ObjectMeta
+				Expect(k8sClient.Update(ctx, metalMachine)).To(Succeed())
+				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 5 * time.Second}))
 			})
 		})
 	})
