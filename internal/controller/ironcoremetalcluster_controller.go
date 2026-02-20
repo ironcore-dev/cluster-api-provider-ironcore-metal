@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
@@ -140,7 +141,8 @@ func (r *IroncoreMetalClusterReconciler) reconcileNormal(_ context.Context, clus
 		Message: "IronMetalCluster is ready",
 	})
 
-	clusterScope.IroncoreMetalCluster.Status.Ready = true
+	clusterScope.IroncoreMetalCluster.Status.Ready = true                              // deprecated v1beta2
+	clusterScope.IroncoreMetalCluster.Status.Initialization.Provisioned = ptr.To(true) // v1beta2
 
 	return ctrl.Result{}, nil
 }

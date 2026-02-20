@@ -10,7 +10,6 @@ import (
 	infrav1 "github.com/ironcore-dev/cluster-api-provider-ironcore-metal/api/v1alpha1"
 	"github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	"github.com/pkg/errors"
-	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -79,31 +78,6 @@ func NewMachineScope(params MachineScopeParams) (*MachineScope, error) {
 	machineScope.patchHelper = helper
 
 	return machineScope, nil
-}
-
-// SetReady sets the IroncoreMetalMachine Ready Status.
-func (m *MachineScope) SetReady() {
-	m.IroncoreMetalMachine.Status.Ready = true
-}
-
-// SetNotReady sets the IroncoreMetalMachine Ready Status to false.
-func (m *MachineScope) SetNotReady() {
-	m.IroncoreMetalMachine.Status.Ready = false
-}
-
-// SetFailureMessage sets the IroncoreMetalMachine status failure message.
-func (m *MachineScope) SetFailureMessage(v error) {
-	m.IroncoreMetalMachine.Status.FailureMessage = ptr.To(v.Error())
-}
-
-// SetFailureReason sets the IroncoreMetalMachine status failure reason.
-func (m *MachineScope) SetFailureReason(v string) {
-	m.IroncoreMetalMachine.Status.FailureReason = v
-}
-
-// HasFailed returns the failure state of the machine scope.
-func (m *MachineScope) HasFailed() bool {
-	return m.IroncoreMetalMachine.Status.FailureReason != "" || m.IroncoreMetalMachine.Status.FailureMessage != nil
 }
 
 // PatchObject persists the Machine configuration and status.
