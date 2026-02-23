@@ -518,10 +518,11 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 		})
 		When("machine in fail state", func() {
 			It("should return empty", func() {
-				failMsg := "some failure MSG"
+				stateMachine := true
 				tmpMAchine := &infrav1alpha1.IroncoreMetalMachine{}
-				metalMachine.Status.FailureMessage = &failMsg
-				metalMachine.Status.FailureReason = "reason test"
+				metalMachine.Status.Initialization.Provisioned = &stateMachine
+				metalMachine.Status.Conditions = append(metalMachine.Status.Conditions, metav1.Condition{Status: "False", Type: "NetworkUnavailable", Reason: "Test",
+					Message: "Test"})
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), tmpMAchine)).NotTo(HaveOccurred())
 				metalMachine.ObjectMeta = tmpMAchine.ObjectMeta
 				Expect(k8sClient.Update(ctx, metalMachine)).To(Succeed())
