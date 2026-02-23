@@ -369,7 +369,7 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 		BeforeEach(func() {
 			secret = &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "secret",
+					Name:      "secret-test",
 					Namespace: namespace,
 				},
 				Data: map[string][]byte{
@@ -489,7 +489,6 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
 			Expect(k8sClient.Delete(ctx, machine)).To(Succeed())
 		})
-
 		When("no owner set", func() {
 			It("should pass with empty", func() {
 				metalMachineOwner.OwnerReferences = []metav1.OwnerReference{}
@@ -502,10 +501,15 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				Expect(k8sClient.Delete(ctx, metalMachineOwner)).To(Succeed())
 			})
 		})
-		When("no cluster label", func() {
-			It("should return empty ", func() {
-				metalMachine.Labels = map[string]string{}
+		When("machine in fail state", func() {
+			It("should return empty", func() {
+				stateMachine := true
 				tmpMAchine := &infrav1alpha1.IroncoreMetalMachine{}
+				metalMachine.Status.Initialization.Provisioned = &stateMachine
+				metalMachine.Status.Conditions = append(metalMachine.Status.Conditions, metav1.Condition{
+					Status: "False", Type: "NetworkUnavailable", Reason: "Test",
+					Message: "Test",
+				})
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), tmpMAchine)).NotTo(HaveOccurred())
 				metalMachine.ObjectMeta = tmpMAchine.ObjectMeta
 				Expect(k8sClient.Update(ctx, metalMachine)).To(Succeed())
@@ -516,13 +520,10 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 5 * time.Second}))
 			})
 		})
-		When("machine in fail state", func() {
-			It("should return empty", func() {
-				stateMachine := true
+		When("no cluster label", func() {
+			It("should return empty ", func() {
+				metalMachine.Labels = map[string]string{}
 				tmpMAchine := &infrav1alpha1.IroncoreMetalMachine{}
-				metalMachine.Status.Initialization.Provisioned = &stateMachine
-				metalMachine.Status.Conditions = append(metalMachine.Status.Conditions, metav1.Condition{Status: "False", Type: "NetworkUnavailable", Reason: "Test",
-					Message: "Test"})
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), tmpMAchine)).NotTo(HaveOccurred())
 				metalMachine.ObjectMeta = tmpMAchine.ObjectMeta
 				Expect(k8sClient.Update(ctx, metalMachine)).To(Succeed())
