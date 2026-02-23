@@ -18,7 +18,7 @@ settings = {
     ],
     "preload_images_for_kind": True,
     "kind_cluster_name": "capm",
-    "capi_version": "v1.11.2",
+    "capi_version": "v1.11.6",
     "capi_ipam_version": "v1.0.3",
     "cert_manager_version": "v1.14.4",
     "kubernetes_version": "v1.30.5",
