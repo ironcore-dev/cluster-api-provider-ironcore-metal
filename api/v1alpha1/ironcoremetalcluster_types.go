@@ -24,11 +24,25 @@ type IroncoreMetalClusterSpec struct {
 	ClusterNetwork clusterv1.ClusterNetwork `json:"clusterNetwork,omitempty"`
 }
 
+// IroncoreMetalClusterInitializationStatus provides observations of the IroncoreMetalCluster initialization process.
+type IroncoreMetalClusterInitializationStatus struct {
+	// Provisioned is true when the infrastructure provider reports that the Cluster's infrastructure is fully provisioned.
+	// NOTE: this field is part of the Cluster API contract, and it is used to orchestrate initial Cluster provisioning.
+	// +optional
+	Provisioned *bool `json:"provisioned,omitempty"`
+}
+
 // IroncoreMetalClusterStatus defines the observed state of IroncoreMetalCluster
 type IroncoreMetalClusterStatus struct {
 	// Ready denotes that the cluster (infrastructure) is ready.
+	// Deprecated: This field is part of the v1beta1 contract and will be ignored in the future.
 	// +optional
 	Ready bool `json:"ready"`
+
+	// Initialization provides observations of the IroncoreMetalCluster initialization process.
+	// NOTE: Fields in this struct are part of the Cluster API contract and are used to orchestrate initial Cluster provisioning.
+	// +optional
+	Initialization IroncoreMetalClusterInitializationStatus `json:"initialization,omitempty,omitzero"`
 
 	// Conditions defines current service state of the IroncoreMetalCluster.
 	// +optional

@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= registry.local/controller:latest
+IMG ?= controller:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.32.0
 
@@ -68,8 +68,9 @@ test: manifests generate fmt vet envtest ## Run tests.
 
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
-test-e2e: manifests kustomize docker-build
-	$(KUSTOMIZE) build config/default > test/e2e/data/infrastructure-ironcore-metal/v0.3.0/infrastructure-components.yaml
+test-e2e: manifests kustomize
+	$(MAKE) docker-build IMG=registry.local/controller:latest # CAPI test framework requires "conventional image name"
+	$(KUSTOMIZE) build config/e2e > test/e2e/data/infrastructure-ironcore-metal/v0.3.0/infrastructure-components.yaml
 	go test -tags e2e ./test/e2e/ -v -ginkgo.v
 
 .PHONY: lint

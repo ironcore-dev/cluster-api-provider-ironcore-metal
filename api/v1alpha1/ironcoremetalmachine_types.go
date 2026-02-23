@@ -23,7 +23,7 @@ const (
 type IroncoreMetalMachineSpec struct {
 	// ProviderID is the unique identifier as specified by the cloud provider.
 	// +optional
-	ProviderID *string `json:"providerID,omitempty"`
+	ProviderID string `json:"providerID,omitempty"`
 
 	// Image specifies the boot image to be used for the server.
 	Image string `json:"image"`
@@ -41,49 +41,29 @@ type IroncoreMetalMachineSpec struct {
 	Metadata *apiextensionsv1.JSON `json:"metadata,omitempty"`
 }
 
+// IroncoreMetalMachineInitializationStatus provides observations of the IroncoreMetalMachine initialization process.
+type IroncoreMetalMachineInitializationStatus struct {
+	// Provisioned is true when the infrastructure provider reports that the Machine's infrastructure is fully provisioned.
+	// NOTE: this field is part of the Cluster API contract, and it is used to orchestrate initial Machine provisioning.
+	// +optional
+	Provisioned *bool `json:"provisioned,omitempty"`
+}
+
 // IroncoreMetalMachineStatus defines the observed state of IroncoreMetalMachine
 type IroncoreMetalMachineStatus struct {
 	// Ready indicates the Machine infrastructure has been provisioned and is ready.
+	// Deprecated: This field is part of the v1beta1 contract and will be removed in the future.
 	// +optional
 	Ready bool `json:"ready"`
 
-	// FailureReason will be set in the event that there is a terminal problem
-	// reconciling the Machine and will contain a succinct value suitable
-	// for machine interpretation.
-	//
-	// This field should not be set for transitive errors that a controller
-	// faces that are expected to be fixed automatically over
-	// time (like service outages), but instead indicate that something is
-	// fundamentally wrong with the Machine's spec or the configuration of
-	// the controller, and that manual intervention is required. Examples
-	// of terminal errors would be invalid combinations of settings in the
-	// spec, values that are unsupported by the controller, or the
-	// responsible controller itself being critically misconfigured.
-	//
-	// Any transient errors that occur during the reconciliation of Machines
-	// can be added as events to the Machine object and/or logged in the
-	// controller's output.
+	// Initialization provides observations of the IroncoreMetalMachine initialization process.
+	// NOTE: Fields in this struct are part of the Cluster API contract and are used to orchestrate initial Machine provisioning.
 	// +optional
-	FailureReason string `json:"failureReason,omitempty"`
+	Initialization IroncoreMetalMachineInitializationStatus `json:"initialization,omitempty,omitzero"`
 
-	// FailureMessage will be set in the event that there is a terminal problem
-	// reconciling the Machine and will contain a more verbose string suitable
-	// for logging and human consumption.
-	//
-	// This field should not be set for transitive errors that a controller
-	// faces that are expected to be fixed automatically over
-	// time (like service outages), but instead indicate that something is
-	// fundamentally wrong with the Machine's spec or the configuration of
-	// the controller, and that manual intervention is required. Examples
-	// of terminal errors would be invalid combinations of settings in the
-	// spec, values that are unsupported by the controller, or the
-	// responsible controller itself being critically misconfigured.
-	//
-	// Any transient errors that occur during the reconciliation of Machines
-	// can be added as events to the Machine object and/or logged in the
-	// controller's output.
+	// Conditions defines current service state of the IroncoreMetalMachine
 	// +optional
-	FailureMessage *string `json:"failureMessage,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
