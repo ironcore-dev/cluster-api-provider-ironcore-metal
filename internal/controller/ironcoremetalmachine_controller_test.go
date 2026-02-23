@@ -506,7 +506,7 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			It("should return empty ", func() {
 				metalMachine.Labels = map[string]string{}
 				tmpMAchine := &infrav1alpha1.IroncoreMetalMachine{}
-				k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), tmpMAchine)
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), tmpMAchine)).NotTo(HaveOccurred())
 				metalMachine.ObjectMeta = tmpMAchine.ObjectMeta
 				Expect(k8sClient.Update(ctx, metalMachine)).To(Succeed())
 				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -522,7 +522,7 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				tmpMAchine := &infrav1alpha1.IroncoreMetalMachine{}
 				metalMachine.Status.FailureMessage = &failMsg
 				metalMachine.Status.FailureReason = "reason test"
-				k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), tmpMAchine)
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), tmpMAchine)).NotTo(HaveOccurred())
 				metalMachine.ObjectMeta = tmpMAchine.ObjectMeta
 				Expect(k8sClient.Update(ctx, metalMachine)).To(Succeed())
 				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
