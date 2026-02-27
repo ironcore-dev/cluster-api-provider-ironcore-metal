@@ -283,7 +283,7 @@ kind-delete: ## Destroys the "capm" kind cluster.
 
 .PHONY: tilt-up
 tilt-up: $(ENVSUBST) $(KUSTOMIZE) $(HELM) $(KUBECTL) kind-create ## start tilt and build kind cluster if needed
-	u8s set --context kind-metal
+	kubectl config use-context kind-metal
 	EXP_CLUSTER_RESOURCE_SET=true tilt up
 
 .PHONY: delete-cluster

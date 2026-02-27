@@ -225,7 +225,7 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				Expect(result.RequeueAfter).To(Equal(time.Duration(0)))
 				err = k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), metalMachine)
 
-				Expect(err).NotTo(HaveOccurred())
+				Expect(err).To(HaveOccurred())
 				Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			})
 		})
