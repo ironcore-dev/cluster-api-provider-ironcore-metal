@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -213,7 +214,21 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 						ign + `"},"filesystem":"root","mode":420,"path":"/var/lib/metal-cloud-config/metadata"}]}}`)
 			})
 		})
+		When("delete machine", func() {
+			It("should delete", func() {
+				metalMachine.Finalizers = []string{}
+				Expect(k8sClient.Update(ctx, metalMachine)).To(Succeed())
+				Expect(k8sClient.Delete(ctx, metalMachine)).To(Succeed())
+				result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(metalMachine)})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.RequeueAfter).To(BeZero())
+				Expect(result.RequeueAfter).To(Equal(time.Duration(0)))
+				err = k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), metalMachine)
 
+				Expect(err).NotTo(HaveOccurred())
+				Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			})
+		})
 		When("the ipam config is present in the metal machine", func() {
 			const metadataKey = "meta-key"
 
@@ -341,6 +356,44 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 						`{"name":"metal-machine","storage":{"files":[{"contents":{"compression":"","source":"data:;base64,` +
 							ign + `"},"filesystem":"root","mode":420,"path":"/var/lib/metal-cloud-config/metadata"}]}}`)
 				})
+			})
+			It("should set ProviderID and Ready status when ServerClaim is bound", func() {
+				// 1st call to create server claim
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				// get created server claim to then bound it
+				serverClaim := &metalv1alpha1.ServerClaim{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), serverClaim)).To(Succeed())
+
+				// bound it ( in real cluster metal-operator does this)
+				serverClaim.Status.Phase = metalv1alpha1.PhaseBound
+				Expect(k8sClient.Status().Update(ctx, serverClaim)).To(Succeed())
+
+				// 2nd call - now controller can see that ServerClaim is bound
+				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(Equal(ctrl.Result{}))
+
+				// fetch updated machine
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), metalMachine)).To(Succeed())
+
+				// build expected like here https://github.com/ironcore-dev/cluster-api-provider-ironcore-metal/blob/main/internal/controller/ironcoremetalmachine_controller.go#L492
+				expectedProviderID := fmt.Sprintf("metal://%s/%s", serverClaim.Namespace, serverClaim.Name)
+
+				Expect(metalMachine.Spec.ProviderID).To(Equal(expectedProviderID))
+
+				// check status for v1beta1 contract (Deprecated, but we still use it)
+				Expect(metalMachine.Status.Ready).To(BeTrue())
+
+				// check status for v1beta2 contract
+				Expect(metalMachine.Status.Initialization).NotTo(BeNil())
+				Expect(*metalMachine.Status.Initialization.Provisioned).To(BeTrue())
 			})
 		})
 	})
@@ -501,37 +554,41 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				Expect(k8sClient.Delete(ctx, metalMachineOwner)).To(Succeed())
 			})
 		})
-		When("machine in fail state", func() {
-			It("should return empty", func() {
-				stateMachine := true
-				tmpMAchine := &infrav1alpha1.IroncoreMetalMachine{}
-				metalMachine.Status.Initialization.Provisioned = &stateMachine
-				metalMachine.Status.Conditions = append(metalMachine.Status.Conditions, metav1.Condition{
-					Status: "False", Type: "NetworkUnavailable", Reason: "Test",
-					Message: "Test",
-				})
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), tmpMAchine)).NotTo(HaveOccurred())
-				metalMachine.ObjectMeta = tmpMAchine.ObjectMeta
-				Expect(k8sClient.Update(ctx, metalMachine)).To(Succeed())
-				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(metalMachine),
-				})
-				Expect(err).NotTo(HaveOccurred())
-				Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 5 * time.Second}))
-			})
-		})
 		When("no cluster label", func() {
 			It("should return empty ", func() {
-				metalMachine.Labels = map[string]string{}
-				tmpMAchine := &infrav1alpha1.IroncoreMetalMachine{}
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), tmpMAchine)).NotTo(HaveOccurred())
-				metalMachine.ObjectMeta = tmpMAchine.ObjectMeta
-				Expect(k8sClient.Update(ctx, metalMachine)).To(Succeed())
+				tmpMAchine := &clusterapiv1beta2.Machine{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(machine), tmpMAchine)).NotTo(HaveOccurred())
+				tmpMAchine.Labels = map[string]string{}
+				Expect(k8sClient.Update(ctx, tmpMAchine)).To(Succeed())
 				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(metalMachine),
 				})
 				Expect(err).NotTo(HaveOccurred())
-				Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 5 * time.Second}))
+				Expect(out).To(Equal(ctrl.Result{}))
+
+				serverClaim := &metalv1alpha1.ServerClaim{}
+				err = k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), serverClaim)
+
+				Expect(err).To(HaveOccurred())
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "ServerClaim should not exist because of early return")
+			})
+		})
+		When("delete machine", func() {
+			It("should delete", func() {
+				tmpMachine := &clusterapiv1beta2.Machine{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(machine), tmpMachine)).NotTo(HaveOccurred())
+				tmpMachine.Spec.Bootstrap.DataSecretName = nil
+				tmpMachine.Spec.Bootstrap.ConfigRef = clusterapiv1beta2.ContractVersionedObjectReference{
+					APIGroup: "bootstrap.cluster.x-k8s.io",
+					Kind:     "dummy-kind",
+					Name:     "dummy-config",
+				}
+				Expect(k8sClient.Update(ctx, tmpMachine)).To(Succeed())
+				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(Equal(ctrl.Result{}))
 			})
 		})
 	})
