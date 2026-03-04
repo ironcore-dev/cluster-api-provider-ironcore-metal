@@ -216,8 +216,6 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 		})
 		When("delete machine", func() {
 			It("should delete", func() {
-				metalMachine.Finalizers = []string{}
-				Expect(k8sClient.Update(ctx, metalMachine)).To(Succeed())
 				Expect(k8sClient.Delete(ctx, metalMachine)).To(Succeed())
 				result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(metalMachine)})
 				Expect(err).NotTo(HaveOccurred())
@@ -386,10 +384,10 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				// build expected like here https://github.com/ironcore-dev/cluster-api-provider-ironcore-metal/blob/main/internal/controller/ironcoremetalmachine_controller.go#L492
 				expectedProviderID := fmt.Sprintf("metal://%s/%s", serverClaim.Namespace, serverClaim.Name)
 
-				Expect(metalMachine.Spec.ProviderID).To(Equal(expectedProviderID))
+				Eventually(Object(metalMachine)).Should(HaveField("Spec.ProviderID", Equal(expectedProviderID)))
 
 				// check status for v1beta1 contract (Deprecated, but we still use it)
-				Expect(metalMachine.Status.Ready).To(BeTrue())
+				Eventually(Object(metalMachine)).Should(HaveField("Status.Ready", BeTrue()))
 
 				// check status for v1beta2 contract
 				Expect(metalMachine.Status.Initialization).NotTo(BeNil())
@@ -498,13 +496,9 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 		JustBeforeEach(func() {
 			Expect(k8sClient.Create(ctx, secret)).To(Succeed())
 			Expect(k8sClient.Create(ctx, metalCluster)).To(Succeed())
-			Eventually(func() error {
-				if err := get(metalCluster); err != nil {
-					return err
-				}
+			Eventually(UpdateStatus(metalCluster, func() {
 				metalCluster.Status.Ready = true
-				return k8sClient.Status().Update(ctx, metalCluster)
-			}).Should(Succeed())
+			})).Should(Succeed())
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 			Eventually(func() error {
 				if err := get(cluster); err != nil {
@@ -544,8 +538,10 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 		})
 		When("no owner set", func() {
 			It("should pass with empty", func() {
-				metalMachineOwner.OwnerReferences = []metav1.OwnerReference{}
-				Expect(k8sClient.Update(ctx, metalMachineOwner)).To(Succeed())
+
+				Eventually(Update(metalMachineOwner, func() {
+					metalMachineOwner.OwnerReferences = []metav1.OwnerReference{}
+				})).To(Succeed())
 				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(metalMachineOwner),
 				})
@@ -558,8 +554,10 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			It("should return empty ", func() {
 				tmpMAchine := &clusterapiv1beta2.Machine{}
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(machine), tmpMAchine)).NotTo(HaveOccurred())
-				tmpMAchine.Labels = map[string]string{}
-				Expect(k8sClient.Update(ctx, tmpMAchine)).To(Succeed())
+				Eventually(Update(tmpMAchine, func() {
+					tmpMAchine.Labels = map[string]string{}
+				})).Should(Succeed())
+
 				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(metalMachine),
 				})
@@ -573,17 +571,18 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "ServerClaim should not exist because of early return")
 			})
 		})
-		When("delete machine", func() {
+		When("bootstrap data is empty", func() {
 			It("should delete", func() {
 				tmpMachine := &clusterapiv1beta2.Machine{}
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(machine), tmpMachine)).NotTo(HaveOccurred())
-				tmpMachine.Spec.Bootstrap.DataSecretName = nil
-				tmpMachine.Spec.Bootstrap.ConfigRef = clusterapiv1beta2.ContractVersionedObjectReference{
-					APIGroup: "bootstrap.cluster.x-k8s.io",
-					Kind:     "dummy-kind",
-					Name:     "dummy-config",
-				}
-				Expect(k8sClient.Update(ctx, tmpMachine)).To(Succeed())
+				Eventually(Update(tmpMachine, func() {
+					tmpMachine.Spec.Bootstrap.DataSecretName = nil
+					tmpMachine.Spec.Bootstrap.ConfigRef = clusterapiv1beta2.ContractVersionedObjectReference{
+						APIGroup: "bootstrap.cluster.x-k8s.io",
+						Kind:     "dummy-kind",
+						Name:     "dummy-config",
+					}
+				})).Should(Succeed())
 				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(metalMachine),
 				})
