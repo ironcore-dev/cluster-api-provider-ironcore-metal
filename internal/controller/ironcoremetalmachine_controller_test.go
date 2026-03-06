@@ -411,10 +411,6 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			metalMachineOwner    *infrav1alpha1.IroncoreMetalMachine
 			controllerReconciler *IroncoreMetalMachineReconciler
 			createOnce           bool
-
-			get = func(obj client.Object) error {
-				return k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), obj)
-			}
 		)
 
 		BeforeEach(func() {
@@ -500,30 +496,20 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				metalCluster.Status.Ready = true
 			})).Should(Succeed())
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
-			Eventually(func() error {
-				if err := get(cluster); err != nil {
-					return err
-				}
+			Eventually(UpdateStatus(cluster, func() {
 				infraProvisionedFlag := true
 				cluster.Status.Initialization.InfrastructureProvisioned = &infraProvisionedFlag
-				return k8sClient.Status().Update(ctx, cluster)
-			}).Should(Succeed())
+			})).Should(Succeed())
 			Expect(k8sClient.Create(ctx, machine)).To(Succeed())
 			Expect(controllerutil.SetOwnerReference(machine, metalMachine, k8sClient.Scheme())).To(Succeed())
 			if !createOnce {
 				Expect(k8sClient.Create(ctx, metalMachine)).To(Succeed())
 				Eventually(func() error {
-					if err := get(metalMachine); err != nil {
-						return err
-					}
 					return clientutils.PatchAddFinalizer(ctx, k8sClient, metalMachine, IroncoreMetalMachineFinalizer)
 				}).Should(Succeed())
 				Expect(controllerutil.SetOwnerReference(machine, metalMachineOwner, k8sClient.Scheme())).To(Succeed())
 				Expect(k8sClient.Create(ctx, metalMachineOwner)).To(Succeed())
 				Eventually(func() error {
-					if err := get(metalMachineOwner); err != nil {
-						return err
-					}
 					return clientutils.PatchAddFinalizer(ctx, k8sClient, metalMachineOwner, IroncoreMetalMachineFinalizer)
 				}).Should(Succeed())
 				createOnce = true
