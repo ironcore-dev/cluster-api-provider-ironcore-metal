@@ -538,10 +538,8 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 		})
 		When("no cluster label", func() {
 			It("should return empty ", func() {
-				tmpMAchine := &clusterapiv1beta2.Machine{}
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(machine), tmpMAchine)).NotTo(HaveOccurred())
-				Eventually(Update(tmpMAchine, func() {
-					tmpMAchine.Labels = map[string]string{}
+				Eventually(Update(machine, func() {
+					machine.Labels = map[string]string{}
 				})).Should(Succeed())
 
 				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -559,11 +557,9 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 		})
 		When("bootstrap data is empty", func() {
 			It("should delete", func() {
-				tmpMachine := &clusterapiv1beta2.Machine{}
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(machine), tmpMachine)).NotTo(HaveOccurred())
-				Eventually(Update(tmpMachine, func() {
-					tmpMachine.Spec.Bootstrap.DataSecretName = nil
-					tmpMachine.Spec.Bootstrap.ConfigRef = clusterapiv1beta2.ContractVersionedObjectReference{
+				Eventually(Update(machine, func() {
+					machine.Spec.Bootstrap.DataSecretName = nil
+					machine.Spec.Bootstrap.ConfigRef = clusterapiv1beta2.ContractVersionedObjectReference{
 						APIGroup: "bootstrap.cluster.x-k8s.io",
 						Kind:     "dummy-kind",
 						Name:     "dummy-config",
