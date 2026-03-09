@@ -556,7 +556,7 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			})
 		})
 		When("bootstrap data is empty", func() {
-			It("should delete", func() {
+			It("should return empty and not create resources", func() {
 				Eventually(Update(machine, func() {
 					machine.Spec.Bootstrap.DataSecretName = nil
 					machine.Spec.Bootstrap.ConfigRef = clusterapiv1beta2.ContractVersionedObjectReference{
