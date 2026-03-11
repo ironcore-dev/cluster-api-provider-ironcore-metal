@@ -18,7 +18,7 @@ require (
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/utils v0.0.0-20260108192941-914a6e750570
 	sigs.k8s.io/cluster-api v1.12.3
-	sigs.k8s.io/cluster-api/test v1.11.6
+	sigs.k8s.io/cluster-api/test v1.12.3
 	sigs.k8s.io/controller-runtime v0.23.1
 )
 
@@ -42,8 +42,8 @@ require (
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/distribution/reference v0.6.0 // indirect
-	github.com/docker/docker v28.3.3+incompatible // indirect
-	github.com/docker/go-connections v0.5.0 // indirect
+	github.com/docker/docker v28.5.2+incompatible // indirect
+	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/docker/go-units v0.4.0 // indirect
 	github.com/drone/envsubst/v2 v2.0.0-20210730161058-179042472c46 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
@@ -71,7 +71,6 @@ require (
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gobuffalo/flect v1.0.3 // indirect
-	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/cel-go v0.27.0 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
@@ -151,7 +150,7 @@ require (
 	k8s.io/kube-openapi v0.0.0-20260127142750-a19766b6e2d4 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.34.0 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
-	sigs.k8s.io/kind v0.30.0 // indirect
+	sigs.k8s.io/kind v0.31.0 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
