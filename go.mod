@@ -9,7 +9,7 @@ require (
 	github.com/ironcore-dev/controller-utils v0.11.0
 	github.com/ironcore-dev/metal-operator v0.4.0
 	github.com/onsi/ginkgo/v2 v2.28.1
-	github.com/onsi/gomega v1.39.1
+	github.com/onsi/gomega v1.40.0
 	github.com/pkg/errors v0.9.1
 	k8s.io/api v0.35.0
 	k8s.io/apiextensions-apiserver v0.35.0
