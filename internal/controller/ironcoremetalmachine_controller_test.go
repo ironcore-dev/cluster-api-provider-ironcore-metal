@@ -32,6 +32,8 @@ import (
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 )
 
+const ironcoreMetalMachine = "IroncoreMetalMachine"
+
 var _ = Describe("IroncoreMetalMachine Controller", func() {
 	When("all resources are present to reconcile", func() {
 		const namespace = "default"
@@ -81,10 +83,10 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				},
 				Spec: infrav1alpha1.IroncoreMetalClusterSpec{
 					ControlPlaneEndpoint: clusterapiv1beta2.APIEndpoint{
-						Host: "1.2.3.4",
+						Host: testHost,
 					},
 					ClusterNetwork: clusterapiv1beta2.ClusterNetwork{
-						ServiceDomain: "test.domain",
+						ServiceDomain: testServiceDomain,
 					},
 				},
 			}
@@ -115,7 +117,7 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 						DataSecretName: &secret.Name,
 					},
 					InfrastructureRef: clusterapiv1beta2.ContractVersionedObjectReference{
-						Kind:     "IroncoreMetalMachine",
+						Kind:     ironcoreMetalMachine,
 						Name:     "test-capi-machine",
 						APIGroup: "infrastructure.cluster.x-k8s.io",
 					},
@@ -330,7 +332,7 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 					return getOwnerReferences(ipAddress)
 				}).Should(ContainElement(metav1.OwnerReference{
 					APIVersion: infrav1alpha1.GroupVersion.String(),
-					Kind:       "IroncoreMetalMachine",
+					Kind:       ironcoreMetalMachine,
 					Name:       metalMachine.Name,
 					UID:        metalMachine.UID,
 				}))
@@ -430,10 +432,10 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				},
 				Spec: infrav1alpha1.IroncoreMetalClusterSpec{
 					ControlPlaneEndpoint: clusterapiv1beta2.APIEndpoint{
-						Host: "1.2.3.4",
+						Host: testHost,
 					},
 					ClusterNetwork: clusterapiv1beta2.ClusterNetwork{
-						ServiceDomain: "test.domain",
+						ServiceDomain: testServiceDomain,
 					},
 				},
 			}
@@ -464,7 +466,7 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 						DataSecretName: &secret.Name,
 					},
 					InfrastructureRef: clusterapiv1beta2.ContractVersionedObjectReference{
-						Kind:     "IroncoreMetalMachine",
+						Kind:     ironcoreMetalMachine,
 						Name:     "test-capi-machine2",
 						APIGroup: "infrastructure.cluster.x-k8s.io",
 					},

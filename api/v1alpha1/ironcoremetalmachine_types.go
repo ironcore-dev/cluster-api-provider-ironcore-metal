@@ -8,6 +8,7 @@ import (
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
@@ -88,7 +89,10 @@ type IroncoreMetalMachineList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&IroncoreMetalMachine{}, &IroncoreMetalMachineList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(SchemeGroupVersion, &IroncoreMetalMachine{}, &IroncoreMetalMachineList{})
+		return nil
+	})
 }
 
 // IPAMObjectReference is a reference to the IPAM object, which will be used for IP allocation.

@@ -24,6 +24,6 @@ type Settings struct {
 }
 
 type RuntimeEnvironment struct {
-	ClusterctlConfigPath     string
-	Scheme                   *runtime.Scheme
+	ClusterctlConfigPath string
+	Scheme               *runtime.Scheme
 }

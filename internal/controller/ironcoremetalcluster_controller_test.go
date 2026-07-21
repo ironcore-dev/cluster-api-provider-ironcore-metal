@@ -22,6 +22,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+const (
+	testHost          = "1.2.3.4"
+	testServiceDomain = "test.domain"
+)
+
 var _ = Describe("IroncoreMetalCluster Controller", func() {
 
 	var (
@@ -81,10 +86,10 @@ var _ = Describe("IroncoreMetalCluster Controller", func() {
 			},
 			Spec: infrav1.IroncoreMetalClusterSpec{
 				ControlPlaneEndpoint: clusterv1.APIEndpoint{
-					Host: "1.2.3.4",
+					Host: testHost,
 				},
 				ClusterNetwork: clusterv1.ClusterNetwork{
-					ServiceDomain: "test.domain",
+					ServiceDomain: testServiceDomain,
 				},
 			},
 		}

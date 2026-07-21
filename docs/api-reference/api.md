@@ -10,6 +10,99 @@
 </div>
 Resource Types:
 <ul></ul>
+<h3 id="infrastructure.cluster.x-k8s.io/v1alpha1.IPAMConfig">IPAMConfig
+</h3>
+<p>
+(<em>Appears on:</em><a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalMachineSpec">IroncoreMetalMachineSpec</a>)
+</p>
+<div>
+<p>IPAMConfig is a reference to an IPAM resource.</p>
+</div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>metadataKey</code><br/>
+<em>
+string
+</em>
+</td>
+<td>
+<p>MetadataKey is the name of metadata key for the network.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>ipamRef</code><br/>
+<em>
+<a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IPAMObjectReference">
+IPAMObjectReference
+</a>
+</em>
+</td>
+<td>
+<p>IPAMRef is a reference to the IPAM object, which will be used for IP allocation.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="infrastructure.cluster.x-k8s.io/v1alpha1.IPAMObjectReference">IPAMObjectReference
+</h3>
+<p>
+(<em>Appears on:</em><a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IPAMConfig">IPAMConfig</a>)
+</p>
+<div>
+<p>IPAMObjectReference is a reference to the IPAM object, which will be used for IP allocation.</p>
+</div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>name</code><br/>
+<em>
+string
+</em>
+</td>
+<td>
+<p>Name is the name of resource being referenced.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>apiGroup</code><br/>
+<em>
+string
+</em>
+</td>
+<td>
+<p>APIGroup is the group for the resource being referenced.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>kind</code><br/>
+<em>
+string
+</em>
+</td>
+<td>
+<p>Kind is the type of resource being referenced.</p>
+</td>
+</tr>
+</tbody>
+</table>
 <h3 id="infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalCluster">IroncoreMetalCluster
 </h3>
 <div>
@@ -54,12 +147,24 @@ IroncoreMetalClusterSpec
 <td>
 <code>controlPlaneEndpoint</code><br/>
 <em>
-sigs.k8s.io/cluster-api/api/v1beta1.APIEndpoint
+sigs.k8s.io/cluster-api/api/core/v1beta2.APIEndpoint
 </em>
 </td>
 <td>
 <em>(Optional)</em>
 <p>ControlPlaneEndpoint represents the endpoint used to communicate with the control plane.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>clusterNetwork</code><br/>
+<em>
+sigs.k8s.io/cluster-api/api/core/v1beta2.ClusterNetwork
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Cluster network configuration.</p>
 </td>
 </tr>
 </table>
@@ -75,6 +180,37 @@ IroncoreMetalClusterStatus
 </em>
 </td>
 <td>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalClusterInitializationStatus">IroncoreMetalClusterInitializationStatus
+</h3>
+<p>
+(<em>Appears on:</em><a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalClusterStatus">IroncoreMetalClusterStatus</a>)
+</p>
+<div>
+<p>IroncoreMetalClusterInitializationStatus provides observations of the IroncoreMetalCluster initialization process.</p>
+</div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>provisioned</code><br/>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Provisioned is true when the infrastructure provider reports that the Cluster&rsquo;s infrastructure is fully provisioned.
+NOTE: this field is part of the Cluster API contract, and it is used to orchestrate initial Cluster provisioning.</p>
 </td>
 </tr>
 </tbody>
@@ -99,12 +235,24 @@ IroncoreMetalClusterStatus
 <td>
 <code>controlPlaneEndpoint</code><br/>
 <em>
-sigs.k8s.io/cluster-api/api/v1beta1.APIEndpoint
+sigs.k8s.io/cluster-api/api/core/v1beta2.APIEndpoint
 </em>
 </td>
 <td>
 <em>(Optional)</em>
 <p>ControlPlaneEndpoint represents the endpoint used to communicate with the control plane.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>clusterNetwork</code><br/>
+<em>
+sigs.k8s.io/cluster-api/api/core/v1beta2.ClusterNetwork
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Cluster network configuration.</p>
 </td>
 </tr>
 </tbody>
@@ -134,14 +282,32 @@ bool
 </td>
 <td>
 <em>(Optional)</em>
-<p>Ready denotes that the cluster (infrastructure) is ready.</p>
+<p>Ready denotes that the cluster (infrastructure) is ready.
+Deprecated: This field is part of the v1beta1 contract and will be ignored in the future.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>initialization,omitempty,omitzero</code><br/>
+<em>
+<a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalClusterInitializationStatus">
+IroncoreMetalClusterInitializationStatus
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Initialization provides observations of the IroncoreMetalCluster initialization process.
+NOTE: Fields in this struct are part of the Cluster API contract and are used to orchestrate initial Cluster provisioning.</p>
 </td>
 </tr>
 <tr>
 <td>
 <code>conditions</code><br/>
 <em>
-sigs.k8s.io/cluster-api/api/v1beta1.Conditions
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta">
+[]Kubernetes meta/v1.Condition
+</a>
 </em>
 </td>
 <td>
@@ -229,6 +395,32 @@ Kubernetes meta/v1.LabelSelector
 This is used to claim specific Server types for a IroncoreMetalMachine.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>ipamConfig</code><br/>
+<em>
+<a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IPAMConfig">
+[]IPAMConfig
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>IPAMConfig is a list of references to Network resources that should be used to assign IP addresses to the worker nodes.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>metadata</code><br/>
+<em>
+k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1.JSON
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Metadata is a key-value map of additional data which should be passed to the Machine.</p>
+</td>
+</tr>
 </table>
 </td>
 </tr>
@@ -242,6 +434,37 @@ IroncoreMetalMachineStatus
 </em>
 </td>
 <td>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalMachineInitializationStatus">IroncoreMetalMachineInitializationStatus
+</h3>
+<p>
+(<em>Appears on:</em><a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalMachineStatus">IroncoreMetalMachineStatus</a>)
+</p>
+<div>
+<p>IroncoreMetalMachineInitializationStatus provides observations of the IroncoreMetalMachine initialization process.</p>
+</div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>provisioned</code><br/>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Provisioned is true when the infrastructure provider reports that the Machine&rsquo;s infrastructure is fully provisioned.
+NOTE: this field is part of the Cluster API contract, and it is used to orchestrate initial Machine provisioning.</p>
 </td>
 </tr>
 </tbody>
@@ -300,6 +523,32 @@ Kubernetes meta/v1.LabelSelector
 This is used to claim specific Server types for a IroncoreMetalMachine.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>ipamConfig</code><br/>
+<em>
+<a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IPAMConfig">
+[]IPAMConfig
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>IPAMConfig is a list of references to Network resources that should be used to assign IP addresses to the worker nodes.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>metadata</code><br/>
+<em>
+k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1.JSON
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Metadata is a key-value map of additional data which should be passed to the Machine.</p>
+</td>
+</tr>
 </tbody>
 </table>
 <h3 id="infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalMachineStatus">IroncoreMetalMachineStatus
@@ -327,57 +576,37 @@ bool
 </td>
 <td>
 <em>(Optional)</em>
-<p>Ready indicates the Machine infrastructure has been provisioned and is ready.</p>
+<p>Ready indicates the Machine infrastructure has been provisioned and is ready.
+Deprecated: This field is part of the v1beta1 contract and will be removed in the future.</p>
 </td>
 </tr>
 <tr>
 <td>
-<code>failureReason</code><br/>
+<code>initialization,omitempty,omitzero</code><br/>
 <em>
-sigs.k8s.io/cluster-api/errors.MachineStatusError
+<a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalMachineInitializationStatus">
+IroncoreMetalMachineInitializationStatus
+</a>
 </em>
 </td>
 <td>
 <em>(Optional)</em>
-<p>FailureReason will be set in the event that there is a terminal problem
-reconciling the Machine and will contain a succinct value suitable
-for machine interpretation.</p>
-<p>This field should not be set for transitive errors that a controller
-faces that are expected to be fixed automatically over
-time (like service outages), but instead indicate that something is
-fundamentally wrong with the Machine&rsquo;s spec or the configuration of
-the controller, and that manual intervention is required. Examples
-of terminal errors would be invalid combinations of settings in the
-spec, values that are unsupported by the controller, or the
-responsible controller itself being critically misconfigured.</p>
-<p>Any transient errors that occur during the reconciliation of Machines
-can be added as events to the Machine object and/or logged in the
-controller&rsquo;s output.</p>
+<p>Initialization provides observations of the IroncoreMetalMachine initialization process.
+NOTE: Fields in this struct are part of the Cluster API contract and are used to orchestrate initial Machine provisioning.</p>
 </td>
 </tr>
 <tr>
 <td>
-<code>failureMessage</code><br/>
+<code>conditions</code><br/>
 <em>
-string
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta">
+[]Kubernetes meta/v1.Condition
+</a>
 </em>
 </td>
 <td>
 <em>(Optional)</em>
-<p>FailureMessage will be set in the event that there is a terminal problem
-reconciling the Machine and will contain a more verbose string suitable
-for logging and human consumption.</p>
-<p>This field should not be set for transitive errors that a controller
-faces that are expected to be fixed automatically over
-time (like service outages), but instead indicate that something is
-fundamentally wrong with the Machine&rsquo;s spec or the configuration of
-the controller, and that manual intervention is required. Examples
-of terminal errors would be invalid combinations of settings in the
-spec, values that are unsupported by the controller, or the
-responsible controller itself being critically misconfigured.</p>
-<p>Any transient errors that occur during the reconciliation of Machines
-can be added as events to the Machine object and/or logged in the
-controller&rsquo;s output.</p>
+<p>Conditions defines current service state of the IroncoreMetalMachine</p>
 </td>
 </tr>
 </tbody>
@@ -459,7 +688,7 @@ IroncoreMetalMachineTemplateResource
 <td>
 <code>metadata</code><br/>
 <em>
-sigs.k8s.io/cluster-api/api/v1beta1.ObjectMeta
+sigs.k8s.io/cluster-api/api/core/v1beta2.ObjectMeta
 </em>
 </td>
 <td>
@@ -519,6 +748,32 @@ Kubernetes meta/v1.LabelSelector
 <em>(Optional)</em>
 <p>ServerSelector specifies matching criteria for labels on Servers.
 This is used to claim specific Server types for a IroncoreMetalMachine.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>ipamConfig</code><br/>
+<em>
+<a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IPAMConfig">
+[]IPAMConfig
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>IPAMConfig is a list of references to Network resources that should be used to assign IP addresses to the worker nodes.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>metadata</code><br/>
+<em>
+k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1.JSON
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Metadata is a key-value map of additional data which should be passed to the Machine.</p>
 </td>
 </tr>
 </table>

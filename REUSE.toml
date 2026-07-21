@@ -22,6 +22,7 @@ path = [
     "tilt-provider.json",
     "templates/**",
     "REUSE.toml",
+    "api/v1alpha1/zz_generated.deepcopy.go",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2024 SAP SE or an SAP affiliate company and IronCore contributors"
