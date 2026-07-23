@@ -11,7 +11,7 @@ spec:
     pods:
       cidrBlocks: ["${POD_CIDR:=192.168.0.0/16}"]
     services:
-      cidrBlocks: ["${POD_CIDR:=10.96.0.0/12}"]
+      cidrBlocks: ["${SERVICE_CIDR:=10.96.0.0/12}"]
   controlPlaneRef:
     apiGroup: controlplane.cluster.x-k8s.io
     apiVersion: controlplane.cluster.x-k8s.io/v1beta2
@@ -151,8 +151,10 @@ spec:
         nodeRegistration:
           name: $${METAL_HOSTNAME}
           kubeletExtraArgs:
-            cloud-provider: external
-            provider-id: "ironcore://$${METAL_HOSTNAME}"
+            - name: cloud-provider
+              value: external
+            - name: provider-id
+              value: "ironcore://$${METAL_HOSTNAME}"
       format: ignition
       preKubeadmCommands:
         - hostnamectl set-hostname $${METAL_HOSTNAME}
