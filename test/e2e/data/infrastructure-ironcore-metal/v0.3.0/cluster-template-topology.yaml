@@ -1,0 +1,337 @@
+# SPDX-FileCopyrightText: 2026 SAP SE or an SAP affiliate company and IronCore contributors
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: ClusterClass
+metadata:
+  name: ironcore-metal-quick-start
+  namespace: "${NAMESPACE}"
+spec:
+  infrastructure:
+    templateRef:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+      kind: IroncoreMetalClusterTemplate
+      name: ironcore-metal-quick-start-cluster
+  controlPlane:
+    templateRef:
+      apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+      kind: KubeadmControlPlaneTemplate
+      name: ironcore-metal-quick-start-control-plane
+    machineInfrastructure:
+      templateRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: IroncoreMetalMachineTemplate
+        name: ironcore-metal-quick-start-control-plane
+  workers:
+    machineDeployments:
+      - class: default-worker
+        bootstrap:
+          templateRef:
+            apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+            kind: KubeadmConfigTemplate
+            name: ironcore-metal-quick-start-default-worker
+        infrastructure:
+          templateRef:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+            kind: IroncoreMetalMachineTemplate
+            name: ironcore-metal-quick-start-default-worker
+  variables:
+    - name: controlPlaneEndpoint
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - host
+          properties:
+            host:
+              type: string
+              minLength: 1
+              maxLength: 512
+            port:
+              type: integer
+              minimum: 1
+              maximum: 65535
+    - name: controlPlaneMachine
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            image:
+              type: string
+            serverSelector:
+              type: object
+              properties:
+                matchLabels:
+                  type: object
+                  additionalProperties:
+                    type: string
+    - name: workerMachine
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            image:
+              type: string
+            serverSelector:
+              type: object
+              properties:
+                matchLabels:
+                  type: object
+                  additionalProperties:
+                    type: string
+  patches:
+    - name: controlPlaneEndpointHost
+      description: Overrides the control plane endpoint host on the generated IroncoreMetalCluster.
+      enabledIf: '{{ if .controlPlaneEndpoint }}true{{ end }}'
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+            kind: IroncoreMetalClusterTemplate
+            matchResources:
+              infrastructureCluster: true
+          jsonPatches:
+            - op: replace
+              path: /spec/template/spec/controlPlaneEndpoint/host
+              valueFrom:
+                variable: controlPlaneEndpoint.host
+    - name: controlPlaneEndpointPort
+      description: Overrides the control plane endpoint port on the generated IroncoreMetalCluster.
+      enabledIf: '{{ if .controlPlaneEndpoint.port }}true{{ end }}'
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+            kind: IroncoreMetalClusterTemplate
+            matchResources:
+              infrastructureCluster: true
+          jsonPatches:
+            - op: replace
+              path: /spec/template/spec/controlPlaneEndpoint/port
+              valueFrom:
+                variable: controlPlaneEndpoint.port
+    - name: controlPlaneMachineImage
+      description: Overrides the OS image on control plane machine templates.
+      enabledIf: '{{ if .controlPlaneMachine.image }}true{{ end }}'
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+            kind: IroncoreMetalMachineTemplate
+            matchResources:
+              controlPlane: true
+          jsonPatches:
+            - op: replace
+              path: /spec/template/spec/image
+              valueFrom:
+                variable: controlPlaneMachine.image
+    - name: controlPlaneMachineServerSelector
+      description: Overrides the server selector on control plane machine templates.
+      enabledIf: '{{ if .controlPlaneMachine.serverSelector }}true{{ end }}'
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+            kind: IroncoreMetalMachineTemplate
+            matchResources:
+              controlPlane: true
+          jsonPatches:
+            - op: replace
+              path: /spec/template/spec/serverSelector/matchLabels
+              valueFrom:
+                variable: controlPlaneMachine.serverSelector.matchLabels
+    - name: workerMachineImage
+      description: Overrides the OS image on worker machine templates.
+      enabledIf: '{{ if .workerMachine.image }}true{{ end }}'
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+            kind: IroncoreMetalMachineTemplate
+            matchResources:
+              machineDeploymentClass:
+                names:
+                  - default-worker
+          jsonPatches:
+            - op: replace
+              path: /spec/template/spec/image
+              valueFrom:
+                variable: workerMachine.image
+    - name: workerMachineServerSelector
+      description: Overrides the server selector on worker machine templates.
+      enabledIf: '{{ if .workerMachine.serverSelector }}true{{ end }}'
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+            kind: IroncoreMetalMachineTemplate
+            matchResources:
+              machineDeploymentClass:
+                names:
+                  - default-worker
+          jsonPatches:
+            - op: replace
+              path: /spec/template/spec/serverSelector/matchLabels
+              valueFrom:
+                variable: workerMachine.serverSelector.matchLabels
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: IroncoreMetalClusterTemplate
+metadata:
+  name: ironcore-metal-quick-start-cluster
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      controlPlaneEndpoint:
+        host: foo
+        port: 443
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+kind: KubeadmControlPlaneTemplate
+metadata:
+  name: ironcore-metal-quick-start-control-plane
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      kubeadmConfigSpec:
+        initConfiguration:
+          nodeRegistration:
+            name: $${METAL_HOSTNAME}
+            kubeletExtraArgs:
+              - name: cloud-provider
+                value: external
+              - name: provider-id
+                value: "ironcore://$${METAL_HOSTNAME}"
+        clusterConfiguration:
+          apiServer:
+            extraArgs:
+              - name: cloud-provider
+                value: external
+          controllerManager:
+            extraArgs:
+              - name: cloud-provider
+                value: external
+        joinConfiguration:
+          nodeRegistration:
+            name: $${METAL_HOSTNAME}
+            kubeletExtraArgs:
+              - name: cloud-provider
+                value: external
+              - name: provider-id
+                value: "ironcore://$${METAL_HOSTNAME}"
+        format: ignition
+        ignition:
+          containerLinuxConfig:
+            additionalConfig: |-
+              storage:
+                files:
+                - path: /opt/testdir/testfile
+                  filesystem: root
+                  mode: 0644
+                  contents:
+                    inline: |
+                      [TEST]
+                      test=1
+        preKubeadmCommands:
+          - hostnamectl set-hostname $${METAL_HOSTNAME}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: IroncoreMetalMachineTemplate
+metadata:
+  name: ironcore-metal-quick-start-control-plane
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      serverSelector:
+        matchLabels:
+          server: metal
+      image: ghcr.io/ironcore-dev/os-images/gardenlinux:1443.3
+      metadata:
+        foo: bar
+      ipamConfig:
+        - metadataKey: bond
+          ipamRef:
+            apiGroup: ipam.cluster.x-k8s.io
+            kind: GlobalInClusterIPPool
+            name: globalinclusterippool-sample-cp
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+kind: KubeadmConfigTemplate
+metadata:
+  name: ironcore-metal-quick-start-default-worker
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          name: $${METAL_HOSTNAME}
+          kubeletExtraArgs:
+            - name: cloud-provider
+              value: external
+            - name: provider-id
+              value: "ironcore://$${METAL_HOSTNAME}"
+      format: ignition
+      preKubeadmCommands:
+        - hostnamectl set-hostname $${METAL_HOSTNAME}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: IroncoreMetalMachineTemplate
+metadata:
+  name: ironcore-metal-quick-start-default-worker
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      serverSelector:
+        matchLabels:
+          server: metal
+      image: ghcr.io/ironcore-dev/os-images/gardenlinux:1443.3
+      metadata:
+        foo: bar
+      ipamConfig:
+        - metadataKey: bond
+          ipamRef:
+            apiGroup: ipam.cluster.x-k8s.io
+            kind: GlobalInClusterIPPool
+            name: globalinclusterippool-sample-cp
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks: ["${POD_CIDR:=192.168.0.0/16}"]
+    services:
+      cidrBlocks: ["${SERVICE_CIDR:=10.96.0.0/12}"]
+  topology:
+    classRef:
+      name: ironcore-metal-quick-start
+    version: "${KUBERNETES_VERSION}"
+    controlPlane:
+      replicas: ${CONTROL_PLANE_MACHINE_COUNT}
+    workers:
+      machineDeployments:
+        - class: default-worker
+          name: md-0
+          replicas: ${WORKER_MACHINE_COUNT}
+    variables:
+      - name: controlPlaneEndpoint
+        value:
+          host: "${CONTROL_PLANE_ENDPOINT_HOST:=foo}"
+          port: ${CONTROL_PLANE_ENDPOINT_PORT:=6443}
+      - name: controlPlaneMachine
+        value:
+          image: "${CONTROL_PLANE_MACHINE_IMAGE:=ghcr.io/ironcore-dev/os-images/gardenlinux:1443.3}"
+          serverSelector:
+            # JSON object, e.g. {"server": "metal"}; default lives in the e2e config variables
+            matchLabels: ${CONTROL_PLANE_SERVER_SELECTOR}
+      - name: workerMachine
+        value:
+          image: "${WORKER_MACHINE_IMAGE:=ghcr.io/ironcore-dev/os-images/gardenlinux:1443.3}"
+          serverSelector:
+            # JSON object, e.g. {"server": "metal"}; default lives in the e2e config variables
+            matchLabels: ${WORKER_SERVER_SELECTOR}

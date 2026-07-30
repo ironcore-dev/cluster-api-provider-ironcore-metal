@@ -218,7 +218,7 @@ NOTE: this field is part of the Cluster API contract, and it is used to orchestr
 <h3 id="infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalClusterSpec">IroncoreMetalClusterSpec
 </h3>
 <p>
-(<em>Appears on:</em><a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalCluster">IroncoreMetalCluster</a>)
+(<em>Appears on:</em><a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalCluster">IroncoreMetalCluster</a>, <a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalClusterTemplateResource">IroncoreMetalClusterTemplateResource</a>)
 </p>
 <div>
 <p>IroncoreMetalClusterSpec defines the desired state of IroncoreMetalCluster</p>
@@ -313,6 +313,170 @@ NOTE: Fields in this struct are part of the Cluster API contract and are used to
 <td>
 <em>(Optional)</em>
 <p>Conditions defines current service state of the IroncoreMetalCluster.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalClusterTemplate">IroncoreMetalClusterTemplate
+</h3>
+<div>
+<p>IroncoreMetalClusterTemplate is the Schema for the ironcoremetalclustertemplates API.</p>
+</div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>metadata</code><br/>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#objectmeta-v1-meta">
+Kubernetes meta/v1.ObjectMeta
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>metadata is the standard object metadata.</p>
+Refer to the Kubernetes API documentation for the fields of the
+<code>metadata</code> field.
+</td>
+</tr>
+<tr>
+<td>
+<code>spec</code><br/>
+<em>
+<a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalClusterTemplateSpec">
+IroncoreMetalClusterTemplateSpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>spec is the desired state of the IroncoreMetalClusterTemplate.</p>
+<br/>
+<br/>
+<table>
+<tr>
+<td>
+<code>template</code><br/>
+<em>
+<a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalClusterTemplateResource">
+IroncoreMetalClusterTemplateResource
+</a>
+</em>
+</td>
+<td>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalClusterTemplateResource">IroncoreMetalClusterTemplateResource
+</h3>
+<p>
+(<em>Appears on:</em><a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalClusterTemplateSpec">IroncoreMetalClusterTemplateSpec</a>)
+</p>
+<div>
+<p>IroncoreMetalClusterTemplateResource describes the data needed to create a IroncoreMetalCluster from a template.</p>
+</div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>metadata,omitempty,omitzero</code><br/>
+<em>
+sigs.k8s.io/cluster-api/api/core/v1beta2.ObjectMeta
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Standard object&rsquo;s metadata.
+More info: <a href="https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata">https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata</a></p>
+Refer to the Kubernetes API documentation for the fields of the
+<code>metadata</code> field.
+</td>
+</tr>
+<tr>
+<td>
+<code>spec</code><br/>
+<em>
+<a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalClusterSpec">
+IroncoreMetalClusterSpec
+</a>
+</em>
+</td>
+<td>
+<br/>
+<br/>
+<table>
+<tr>
+<td>
+<code>controlPlaneEndpoint</code><br/>
+<em>
+sigs.k8s.io/cluster-api/api/core/v1beta2.APIEndpoint
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ControlPlaneEndpoint represents the endpoint used to communicate with the control plane.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>clusterNetwork</code><br/>
+<em>
+sigs.k8s.io/cluster-api/api/core/v1beta2.ClusterNetwork
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Cluster network configuration.</p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalClusterTemplateSpec">IroncoreMetalClusterTemplateSpec
+</h3>
+<p>
+(<em>Appears on:</em><a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalClusterTemplate">IroncoreMetalClusterTemplate</a>)
+</p>
+<div>
+<p>IroncoreMetalClusterTemplateSpec defines the desired state of IroncoreMetalClusterTemplate.</p>
+</div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>template</code><br/>
+<em>
+<a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IroncoreMetalClusterTemplateResource">
+IroncoreMetalClusterTemplateResource
+</a>
+</em>
+</td>
+<td>
 </td>
 </tr>
 </tbody>

@@ -28,6 +28,8 @@ providers:
             targetName: "metadata.yaml"
           - sourcePath: "../data/infrastructure-ironcore-metal/v0.3.0/cluster-template.yaml"
             targetName: "cluster-template.yaml"
+          - sourcePath: "../data/infrastructure-ironcore-metal/v0.3.0/cluster-template-topology.yaml"
+            targetName: "cluster-template-topology.yaml"
 
   - name: cluster-api
     type: CoreProvider
@@ -63,8 +65,11 @@ variables:
   KUBERNETES_VERSION_MANAGEMENT: "v1.34.0"
   CONTROL_PLANE_MACHINE_COUNT: "1"
   WORKER_MACHINE_COUNT: "1"
+  CONTROL_PLANE_SERVER_SELECTOR: '{"server": "metal"}'
+  WORKER_SERVER_SELECTOR: '{"server": "metal"}'
   CNI_RESOURCES: "https://raw.githubusercontent.com/projectcalico/calico/v3.31.3/manifests/calico.yaml"
   EXP_KUBEADM_BOOTSTRAP_FORMAT_IGNITION: "true"
+  CLUSTER_TOPOLOGY: "true"
   CAPI_VERSION: "v1.11.6"
   KUBEADM_VERSION: "v1.11.6"
   OLD_PROVIDER_VERSION: "v0.2.0"
