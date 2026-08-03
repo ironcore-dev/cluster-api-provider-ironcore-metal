@@ -472,6 +472,7 @@ func (r *IroncoreMetalMachineReconciler) applyServerClaim(ctx context.Context, l
 			},
 			Image:          ironcoremetalmachine.Spec.Image,
 			ServerSelector: ironcoremetalmachine.Spec.ServerSelector,
+			Tolerations:    ironcoremetalmachine.Spec.Tolerations,
 		},
 	}
 

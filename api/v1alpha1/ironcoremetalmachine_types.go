@@ -6,6 +6,7 @@ package v1alpha1
 import (
 	"time"
 
+	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,6 +34,11 @@ type IroncoreMetalMachineSpec struct {
 	// This is used to claim specific Server types for a IroncoreMetalMachine.
 	// +optional
 	ServerSelector *metav1.LabelSelector `json:"serverSelector,omitempty"`
+
+	// Tolerations allow the resulting ServerClaim to bind to a Server with
+	// matching taints.
+	// +optional
+	Tolerations []metalv1alpha1.Toleration `json:"tolerations,omitempty"`
 
 	// IPAMConfig is a list of references to Network resources that should be used to assign IP addresses to the worker nodes.
 	// +optional
