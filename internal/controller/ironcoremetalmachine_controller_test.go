@@ -395,6 +395,51 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				Expect(metalMachine.Status.Initialization).NotTo(BeNil())
 				Expect(*metalMachine.Status.Initialization.Provisioned).To(BeTrue())
 			})
+
+			When("the tolerations are present in the metal machine", func() {
+				BeforeEach(func() {
+					metalMachine.Spec.Tolerations = []metalv1alpha1.Toleration{
+						{
+							Key:      "metal.ironcore.dev/maintenance",
+							Operator: metalv1alpha1.TolerationOperatorEqual,
+							Value:    "true",
+							Effect:   metalv1alpha1.TaintEffectNoBind,
+						},
+						{
+							Key:      "metal.ironcore.dev/reserved",
+							Operator: metalv1alpha1.TolerationOperatorExists,
+						},
+					}
+				})
+
+				It("should create the ServerClaim with the tolerations", func() {
+					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+						NamespacedName: client.ObjectKeyFromObject(metalMachine),
+					})
+					Expect(err).NotTo(HaveOccurred())
+
+					serverClaim := &metalv1alpha1.ServerClaim{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      metalMachine.Name,
+							Namespace: namespace,
+						},
+					}
+					Eventually(Object(serverClaim)).Should(
+						HaveField("Spec.Tolerations", Equal(metalMachine.Spec.Tolerations)))
+				})
+			})
+
+			It("should create the ServerClaim without tolerations when none are set", func() {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				serverClaim := &metalv1alpha1.ServerClaim{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), serverClaim)).To(Succeed())
+				Expect(serverClaim.Spec.Tolerations).To(BeEmpty())
+			})
+
 		})
 	})
 })

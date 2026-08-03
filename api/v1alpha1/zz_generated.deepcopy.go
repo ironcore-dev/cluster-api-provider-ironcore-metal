@@ -5,6 +5,7 @@
 package v1alpha1
 
 import (
+	apiv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -341,6 +342,11 @@ func (in *IroncoreMetalMachineSpec) DeepCopyInto(out *IroncoreMetalMachineSpec) 
 		in, out := &in.ServerSelector, &out.ServerSelector
 		*out = new(v1.LabelSelector)
 		(*in).DeepCopyInto(*out)
+	}
+	if in.Tolerations != nil {
+		in, out := &in.Tolerations, &out.Tolerations
+		*out = make([]apiv1alpha1.Toleration, len(*in))
+		copy(*out, *in)
 	}
 	if in.IPAMConfig != nil {
 		in, out := &in.IPAMConfig, &out.IPAMConfig

@@ -561,6 +561,19 @@ This is used to claim specific Server types for a IroncoreMetalMachine.</p>
 </tr>
 <tr>
 <td>
+<code>tolerations</code><br/>
+<em>
+[]github.com/ironcore-dev/metal-operator/api/v1alpha1.Toleration
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Tolerations allow the resulting ServerClaim to bind to a Server with
+matching taints.</p>
+</td>
+</tr>
+<tr>
+<td>
 <code>ipamConfig</code><br/>
 <em>
 <a href="#infrastructure.cluster.x-k8s.io/v1alpha1.IPAMConfig">
@@ -685,6 +698,19 @@ Kubernetes meta/v1.LabelSelector
 <em>(Optional)</em>
 <p>ServerSelector specifies matching criteria for labels on Servers.
 This is used to claim specific Server types for a IroncoreMetalMachine.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>tolerations</code><br/>
+<em>
+[]github.com/ironcore-dev/metal-operator/api/v1alpha1.Toleration
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Tolerations allow the resulting ServerClaim to bind to a Server with
+matching taints.</p>
 </td>
 </tr>
 <tr>
@@ -912,6 +938,19 @@ Kubernetes meta/v1.LabelSelector
 <em>(Optional)</em>
 <p>ServerSelector specifies matching criteria for labels on Servers.
 This is used to claim specific Server types for a IroncoreMetalMachine.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>tolerations</code><br/>
+<em>
+[]github.com/ironcore-dev/metal-operator/api/v1alpha1.Toleration
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Tolerations allow the resulting ServerClaim to bind to a Server with
+matching taints.</p>
 </td>
 </tr>
 <tr>
