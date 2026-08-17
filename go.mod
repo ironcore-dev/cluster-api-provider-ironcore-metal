@@ -8,7 +8,7 @@ require (
 	github.com/imdario/mergo v0.3.16
 	github.com/ironcore-dev/controller-utils v0.13.0
 	github.com/ironcore-dev/metal-operator v0.6.2
-	github.com/onsi/ginkgo/v2 v2.32.0
+	github.com/onsi/ginkgo/v2 v2.32.1
 	github.com/onsi/gomega v1.42.1
 	github.com/pkg/errors v0.9.1
 	k8s.io/api v0.36.3
