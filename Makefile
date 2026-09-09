@@ -80,6 +80,14 @@ lint: golangci-lint ## Run golangci-lint linter
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	$(GOLANGCI_LINT) run --fix
 
+.PHONY: add-license
+add-license: addlicense ## Add license headers to all go files.
+	find . -name '*.go' -exec "$(ADDLICENSE)" -f hack/license-header.txt {} +
+
+.PHONY: check-license
+check-license: addlicense ## Check that every file has a license header present.
+	find . -name '*.go' -exec "$(ADDLICENSE)" -check -c 'IronCore authors' {} +
+
 ##@ Build
 
 .PHONY: docs
@@ -174,6 +182,7 @@ ENVSUBST_BIN ?= $(LOCALBIN)/envsubst
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 GEN_CRD_API_REFERENCE_DOCS ?= $(LOCALBIN)/gen-crd-api-reference-docs
 GOIMPORTS ?= $(LOCALBIN)/goimports
+ADDLICENSE ?= $(LOCALBIN)/addlicense
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
@@ -187,6 +196,7 @@ ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d.%d",$$3, $$2}')
 
 GOIMPORTS_VERSION ?= v0.48.0
+ADDLICENSE_VERSION ?= v1.1.1
 ENVSUBST_VER := v1.2.0
 GOLANGCI_LINT_VERSION ?= v2.12
 GEN_CRD_API_REFERENCE_DOCS_VERSION ?= v0.3.0
@@ -202,6 +212,11 @@ $(KUSTOMIZE): $(LOCALBIN)
 goimports: $(GOIMPORTS) ## Download goimports locally if necessary.
 $(GOIMPORTS): $(LOCALBIN)
 	$(call go-install-tool,$(GOIMPORTS),golang.org/x/tools/cmd/goimports,$(GOIMPORTS_VERSION))
+
+.PHONY: addlicense
+addlicense: $(ADDLICENSE) ## Download addlicense locally if necessary.
+$(ADDLICENSE): $(LOCALBIN)
+	$(call go-install-tool,$(ADDLICENSE),github.com/google/addlicense,$(ADDLICENSE_VERSION))
 
 .PHONY: kubectl
 kubectl: $(KUBECTL) ## Download kubectl locally if necessary.
