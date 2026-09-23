@@ -4,6 +4,7 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -25,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -38,6 +40,8 @@ var (
 	testEnv   *envtest.Environment
 	cfg       *rest.Config
 	k8sClient client.Client
+	ctx       context.Context
+	cancel    context.CancelFunc
 )
 
 func TestControllers(t *testing.T) {
@@ -52,6 +56,7 @@ func TestControllers(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	ctrl.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+	ctx, cancel = context.WithCancel(context.Background())
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
@@ -77,9 +82,6 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	err = infrav1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
 	// +kubebuilder:scaffold:scheme
 	Expect(clusterapiv1beta2.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(infrav1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
@@ -92,10 +94,31 @@ var _ = BeforeSuite(func() {
 
 	// set komega client
 	SetClient(k8sClient)
+
+	By("starting the manager with the IroncoreMetalCluster controller")
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme: scheme.Scheme,
+		Metrics: metricsserver.Options{
+			BindAddress: "0", // disable the metrics endpoint in tests
+		},
+	})
+	Expect(err).NotTo(HaveOccurred())
+
+	Expect((&IroncoreMetalClusterReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(ctx, mgr)).To(Succeed())
+
+	go func() {
+		defer GinkgoRecover()
+		Expect(mgr.Start(ctx)).To(Succeed())
+	}()
+	Expect(mgr.GetCache().WaitForCacheSync(ctx)).To(BeTrue())
 })
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
-	err := testEnv.Stop()
-	Expect(err).NotTo(HaveOccurred())
+	// Stop the manager before the API server goes away.
+	cancel()
+	Expect(testEnv.Stop()).To(Succeed())
 })
