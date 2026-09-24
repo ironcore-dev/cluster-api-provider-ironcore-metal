@@ -359,11 +359,13 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				})
 			})
 			It("should set ProviderID and Ready status when ServerClaim is bound", func() {
-				// 1st call to create server claim
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				// 1st call to create server claim; not bound yet, so no requeue:
+				// the ServerClaim watch re-triggers the reconcile.
+				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(metalMachine),
 				})
 				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(Equal(ctrl.Result{}))
 
 				// get created server claim to then bound it
 				serverClaim := &metalv1alpha1.ServerClaim{}
@@ -374,7 +376,7 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				Expect(k8sClient.Status().Update(ctx, serverClaim)).To(Succeed())
 
 				// 2nd call - now controller can see that ServerClaim is bound
-				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				out, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(metalMachine),
 				})
 

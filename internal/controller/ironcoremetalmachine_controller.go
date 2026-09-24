@@ -187,6 +187,9 @@ func (r *IroncoreMetalMachineReconciler) SetupWithManager(ctx context.Context, m
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1alpha1.IroncoreMetalMachine{}).
+		// ServerClaims are created with a controller reference to the
+		// IroncoreMetalMachine, so any change (e.g. becoming Bound) enqueues it.
+		Owns(&metalv1alpha1.ServerClaim{}).
 		Watches(
 			&clusterapiv1beta2.Machine{},
 			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1alpha1.GroupVersion.WithKind("IroncoreMetalMachine"))),
@@ -281,12 +284,16 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 		return ctrl.Result{}, err
 	}
 
-	bound, _ := r.ensureServerClaimBound(ctx, serverClaim)
+	bound, err := r.ensureServerClaimBound(ctx, serverClaim)
+	if err != nil {
+		machineScope.Error(err, "failed to check ServerClaim binding")
+		return ctrl.Result{}, err
+	}
 	if !bound {
+		// No requeue needed: the ServerClaim watch enqueues this machine
+		// once the claim's phase changes.
 		machineScope.Info("Waiting for ServerClaim to be Bound")
-		return ctrl.Result{
-			RequeueAfter: infrav1alpha1.DefaultReconcilerRequeue,
-		}, nil
+		return ctrl.Result{}, nil
 	}
 
 	machineScope.Info("Patching ProviderID in IroncoreMetalMachine")
@@ -556,13 +563,15 @@ func (r *IroncoreMetalMachineReconciler) setServerClaimOwnership(ctx context.Con
 func (r *IroncoreMetalMachineReconciler) ensureServerClaimBound(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim) (bool, error) {
 	claimObj := &metalv1alpha1.ServerClaim{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(serverClaim), claimObj); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Not yet visible in the cache; the ServerClaim watch will
+			// enqueue us once it is.
+			return false, nil
+		}
 		return false, err
 	}
 
-	if claimObj.Status.Phase != metalv1alpha1.PhaseBound {
-		return false, nil
-	}
-	return true, nil
+	return claimObj.Status.Phase == metalv1alpha1.PhaseBound, nil
 }
 
 func findAndReplaceIgnition(ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, data []byte) []byte {
