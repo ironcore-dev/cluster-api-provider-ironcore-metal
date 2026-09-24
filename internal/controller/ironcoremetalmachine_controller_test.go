@@ -10,6 +10,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -600,6 +601,28 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 
 				Expect(err).To(HaveOccurred())
 				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "ServerClaim should not exist because of early return")
+			})
+		})
+		When("cluster infrastructure is not provisioned", func() {
+			It("should return without requeue and not create resources", func() {
+				Eventually(UpdateStatus(cluster, func() {
+					cluster.Status.Initialization.InfrastructureProvisioned = ptr.To(false)
+				})).Should(Succeed())
+
+				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).NotTo(HaveOccurred())
+				// No requeue: the Cluster watch enqueues the machine once
+				// infrastructure becomes provisioned.
+				Expect(out).To(Equal(ctrl.Result{}))
+
+				serverClaim := &metalv1alpha1.ServerClaim{}
+				err = k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), serverClaim)
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "ServerClaim should not exist before infrastructure is provisioned")
+
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), metalMachine)).To(Succeed())
+				Expect(metalMachine.Status.Initialization.Provisioned).To(BeNil())
 			})
 		})
 		When("bootstrap data is empty", func() {

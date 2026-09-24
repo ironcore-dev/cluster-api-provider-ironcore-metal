@@ -32,7 +32,9 @@ import (
 	capiv1beta2 "sigs.k8s.io/cluster-api/api/ipam/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
+	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -61,6 +63,7 @@ const (
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=ironcoremetalmachines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=ironcoremetalmachines/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=ironcoremetalmachines/finalizers,verbs=update
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;clusters/status,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines;machines/status,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinesets,verbs=get;list;watch
@@ -117,11 +120,11 @@ func (r *IroncoreMetalMachineReconciler) Reconcile(ctx context.Context, req ctrl
 
 	metalCluster := &infrav1alpha1.IroncoreMetalCluster{}
 	if err := r.Get(ctx, metalClusterName, metalCluster); err != nil {
-		if apierrors.IsNotFound(err) || !metalCluster.Status.Ready {
+		if apierrors.IsNotFound(err) {
 			logger.Info("IroncoreMetalCluster is not available yet")
 			return ctrl.Result{}, nil
 		}
-		return reconcile.Result{}, err
+		return ctrl.Result{}, err
 	}
 
 	// Create the cluster scope.
@@ -174,12 +177,26 @@ func (r *IroncoreMetalMachineReconciler) Reconcile(ctx context.Context, req ctrl
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *IroncoreMetalMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *IroncoreMetalMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	clusterToMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1alpha1.IroncoreMetalMachineList{}, mgr.GetScheme())
+	if err != nil {
+		return fmt.Errorf("failed to create Cluster to IroncoreMetalMachines mapper: %w", err)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1alpha1.IroncoreMetalMachine{}).
 		Watches(
 			&clusterapiv1beta2.Machine{},
 			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1alpha1.GroupVersion.WithKind("IroncoreMetalMachine"))),
+		).
+		// Enqueue all IroncoreMetalMachines of a Cluster when its infrastructure
+		// becomes provisioned or it is paused/unpaused.
+		Watches(
+			&clusterapiv1beta2.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(clusterToMachines),
+			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(mgr.GetScheme(), log)),
 		).
 		Complete(r)
 }
@@ -201,6 +218,8 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 	clusterScope.Logger.V(4).Info("Reconciling IroncoreMetalMachine")
 
 	if !ptr.Deref(machineScope.Cluster.Status.Initialization.InfrastructureProvisioned, false) {
+		// No requeue needed: the Cluster watch enqueues this machine once
+		// infrastructure becomes provisioned.
 		machineScope.Info("Cluster infrastructure is not ready yet")
 		// TBD: update conditions
 		return ctrl.Result{}, nil
