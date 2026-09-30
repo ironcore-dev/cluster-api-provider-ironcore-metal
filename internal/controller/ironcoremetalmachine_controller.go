@@ -32,7 +32,9 @@ import (
 	capiv1beta2 "sigs.k8s.io/cluster-api/api/ipam/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
+	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -61,6 +63,7 @@ const (
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=ironcoremetalmachines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=ironcoremetalmachines/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=ironcoremetalmachines/finalizers,verbs=update
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;clusters/status,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines;machines/status,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinesets,verbs=get;list;watch
@@ -117,11 +120,11 @@ func (r *IroncoreMetalMachineReconciler) Reconcile(ctx context.Context, req ctrl
 
 	metalCluster := &infrav1alpha1.IroncoreMetalCluster{}
 	if err := r.Get(ctx, metalClusterName, metalCluster); err != nil {
-		if apierrors.IsNotFound(err) || !metalCluster.Status.Ready {
+		if apierrors.IsNotFound(err) {
 			logger.Info("IroncoreMetalCluster is not available yet")
 			return ctrl.Result{}, nil
 		}
-		return reconcile.Result{}, err
+		return ctrl.Result{}, err
 	}
 
 	// Create the cluster scope.
@@ -174,12 +177,35 @@ func (r *IroncoreMetalMachineReconciler) Reconcile(ctx context.Context, req ctrl
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *IroncoreMetalMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *IroncoreMetalMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	clusterToMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1alpha1.IroncoreMetalMachineList{}, mgr.GetScheme())
+	if err != nil {
+		return fmt.Errorf("failed to create Cluster to IroncoreMetalMachines mapper: %w", err)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1alpha1.IroncoreMetalMachine{}).
+		// ServerClaims are created with a controller reference to the
+		// IroncoreMetalMachine, so any change (e.g. becoming Bound) enqueues it.
+		Owns(&metalv1alpha1.ServerClaim{}).
 		Watches(
 			&clusterapiv1beta2.Machine{},
 			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1alpha1.GroupVersion.WithKind("IroncoreMetalMachine"))),
+		).
+		// Enqueue all IroncoreMetalMachines of a Cluster when its infrastructure
+		// becomes provisioned or it is paused/unpaused.
+		Watches(
+			&clusterapiv1beta2.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(clusterToMachines),
+			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(mgr.GetScheme(), log)),
+		).
+		// IPAddressClaims are fulfilled asynchronously by the IPAM provider;
+		// enqueue the owning machine when that happens.
+		Watches(
+			&capiv1beta2.IPAddressClaim{},
+			handler.EnqueueRequestsFromMapFunc(ipAddressClaimToMachine),
 		).
 		Complete(r)
 }
@@ -201,6 +227,8 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 	clusterScope.Logger.V(4).Info("Reconciling IroncoreMetalMachine")
 
 	if !ptr.Deref(machineScope.Cluster.Status.Initialization.InfrastructureProvisioned, false) {
+		// No requeue needed: the Cluster watch enqueues this machine once
+		// infrastructure becomes provisioned.
 		machineScope.Info("Cluster infrastructure is not ready yet")
 		// TBD: update conditions
 		return ctrl.Result{}, nil
@@ -229,14 +257,20 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 		return ctrl.Result{}, err
 	}
 
-	ipAddressClaims, IPAddressesMetadata, err := r.getOrCreateIPAddressClaims(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine)
+	ipAddressClaims, ipAddressesMetadata, ready, err := r.getOrCreateIPAddressClaims(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine)
 	if err != nil {
 		machineScope.Error(err, "failed to get or create IPAddressClaims")
 		return ctrl.Result{}, err
 	}
+	if !ready {
+		// No requeue needed: the IPAddressClaim watch enqueues this machine
+		// once the IPAM provider has allocated the address.
+		machineScope.Info("Waiting for IPAddressClaims to be fulfilled")
+		return ctrl.Result{}, nil
+	}
 
 	machineScope.Info("Creating an ignition", "Machine", machineScope.IroncoreMetalMachine.Name)
-	ignition, err := r.createIgnition(machineScope.IroncoreMetalMachine, bootstrapSecret.Data[bootstrapDataKey], IPAddressesMetadata)
+	ignition, err := r.createIgnition(machineScope.IroncoreMetalMachine, bootstrapSecret.Data[bootstrapDataKey], ipAddressesMetadata)
 	if err != nil {
 		machineScope.Error(err, "failed to create an ignition")
 		return ctrl.Result{}, err
@@ -262,12 +296,16 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 		return ctrl.Result{}, err
 	}
 
-	bound, _ := r.ensureServerClaimBound(ctx, serverClaim)
+	bound, err := r.ensureServerClaimBound(ctx, serverClaim)
+	if err != nil {
+		machineScope.Error(err, "failed to check ServerClaim binding")
+		return ctrl.Result{}, err
+	}
 	if !bound {
+		// No requeue needed: the ServerClaim watch enqueues this machine
+		// once the claim's phase changes.
 		machineScope.Info("Waiting for ServerClaim to be Bound")
-		return ctrl.Result{
-			RequeueAfter: infrav1alpha1.DefaultReconcilerRequeue,
-		}, nil
+		return ctrl.Result{}, nil
 	}
 
 	machineScope.Info("Patching ProviderID in IroncoreMetalMachine")
@@ -283,7 +321,7 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 	return reconcile.Result{}, nil
 }
 
-func (r *IroncoreMetalMachineReconciler) createIgnition(ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, ignition []byte, IPAddressesMetadata map[string]any) ([]byte, error) {
+func (r *IroncoreMetalMachineReconciler) createIgnition(ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, ignition []byte, ipAddressesMetadata map[string]any) ([]byte, error) {
 	ignition = findAndReplaceIgnition(ironcoremetalmachine, ignition)
 
 	ignitionMap := make(map[string]any)
@@ -297,7 +335,7 @@ func (r *IroncoreMetalMachineReconciler) createIgnition(ironcoremetalmachine *in
 			return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 		}
 	}
-	maps.Copy(metaDataMap, IPAddressesMetadata)
+	maps.Copy(metaDataMap, ipAddressesMetadata)
 	metaData, err := json.Marshal(metaDataMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to apply IPAddresses: %w", err)
@@ -327,9 +365,12 @@ func (r *IroncoreMetalMachineReconciler) createIgnition(ironcoremetalmachine *in
 	return json.Marshal(ignitionMap)
 }
 
-func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine) ([]*capiv1beta2.IPAddressClaim, map[string]any, error) {
-	IPAddressClaims := []*capiv1beta2.IPAddressClaim{}
-	IPAddressesMetadata := make(map[string]any)
+// getOrCreateIPAddressClaims ensures an IPAddressClaim exists for every IPAMConfig entry.
+// ready is false while any claim has not been fulfilled by the IPAM provider yet; the
+// IPAddressClaim watch re-enqueues the machine once it is.
+func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.Context, log *logr.Logger, ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine) (claims []*capiv1beta2.IPAddressClaim, metadata map[string]any, ready bool, err error) {
+	claims = []*capiv1beta2.IPAddressClaim{}
+	metadata = make(map[string]any)
 
 	for _, networkRef := range ironcoremetalmachine.Spec.IPAMConfig {
 		ipAddrClaimName := fmt.Sprintf("%s-%s", ironcoremetalmachine.Name, networkRef.MetadataKey)
@@ -337,35 +378,16 @@ func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.
 			log.Info("IP address claim name is too long, it will be shortened which can cause name collisions", "name", ipAddrClaimName)
 			ipAddrClaimName = ipAddrClaimName[:validation.DNS1123SubdomainMaxLength]
 		}
-
 		ipAddrClaimKey := client.ObjectKey{Namespace: ironcoremetalmachine.Namespace, Name: ipAddrClaimName}
+
 		ipClaim := &capiv1beta2.IPAddressClaim{}
-		if err := r.Get(ctx, ipAddrClaimKey, ipClaim); err != nil && !apierrors.IsNotFound(err) {
-			return nil, nil, err
-
-		} else if err == nil {
-			log.V(3).Info("IP address claim found", "IP", ipAddrClaimKey.String())
-			if ipClaim.Status.AddressRef.Name == "" {
-				return nil, nil, fmt.Errorf("IP address claim %q has no IP address reference", ipAddrClaimKey.String())
-			}
-
-			if ipClaim.Labels == nil {
-				return nil, nil, fmt.Errorf("IP address claim %q has no server claim labels", ipAddrClaimKey.String())
-			}
-			name, nameExists := ipClaim.Labels[LabelKeyServerClaimName]
-			namespace, namespaceExists := ipClaim.Labels[LabelKeyServerClaimNamespace]
-			if !nameExists || !namespaceExists {
-				return nil, nil, fmt.Errorf("IP address claim %q has no server claim labels", ipAddrClaimKey.String())
-			}
-			if name != ironcoremetalmachine.Name || namespace != ironcoremetalmachine.Namespace {
-				return nil, nil, fmt.Errorf("IP address claim %q's server claim labels don't match. Expected: name: %q, namespace: %q. Actual: name: %q, namespace: %q", ipAddrClaimKey.String(), ironcoremetalmachine.Name, ironcoremetalmachine.Namespace, name, namespace)
-			}
-		} else if apierrors.IsNotFound(err) {
+		err := r.Get(ctx, ipAddrClaimKey, ipClaim)
+		switch {
+		case apierrors.IsNotFound(err):
 			if networkRef.IPAMRef == nil {
-				return nil, nil, errors.New("ipamRef of an ipamConfig is not set")
+				return nil, nil, false, errors.New("ipamRef of an ipamConfig is not set")
 			}
-			log.V(3).Info("creating IP address claim", "name", ipAddrClaimKey.String())
-			apiGroup := networkRef.IPAMRef.APIGroup
+			log.V(3).Info("Creating IP address claim", "name", ipAddrClaimKey.String())
 			ipClaim = &capiv1beta2.IPAddressClaim{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      ipAddrClaimKey.Name,
@@ -377,54 +399,59 @@ func (r *IroncoreMetalMachineReconciler) getOrCreateIPAddressClaims(ctx context.
 				},
 				Spec: capiv1beta2.IPAddressClaimSpec{
 					PoolRef: capiv1beta2.IPPoolReference{
-						APIGroup: apiGroup,
+						APIGroup: networkRef.IPAMRef.APIGroup,
 						Kind:     networkRef.IPAMRef.Kind,
 						Name:     networkRef.IPAMRef.Name,
 					},
 				},
 			}
-			if err = r.Create(ctx, ipClaim); err != nil {
-				return nil, nil, fmt.Errorf("error creating IP: %w", err)
+			if err := r.Create(ctx, ipClaim); err != nil {
+				return nil, nil, false, fmt.Errorf("error creating IPAddressClaim %q: %w", ipAddrClaimKey.String(), err)
 			}
+			// Just created: the IPAM provider has not allocated an address yet.
+			log.V(3).Info("Waiting for IP address claim to be fulfilled", "name", ipAddrClaimKey.String())
+			return nil, nil, false, nil
 
-			// Wait for the IP address claim to reach the ready state
-			err = wait.PollUntilContextTimeout(
-				ctx,
-				time.Millisecond*50,
-				time.Millisecond*340,
-				true,
-				func(ctx context.Context) (bool, error) {
-					if err = r.Get(ctx, ipAddrClaimKey, ipClaim); err != nil && !apierrors.IsNotFound(err) {
-						return false, err
-					}
-					return ipClaim.Status.AddressRef.Name != "", nil
-				})
-			if err != nil {
-				return nil, nil, err
-			}
+		case err != nil:
+			return nil, nil, false, err
+		}
+
+		log.V(3).Info("IP address claim found", "IP", ipAddrClaimKey.String())
+		name, nameExists := ipClaim.Labels[LabelKeyServerClaimName]
+		namespace, namespaceExists := ipClaim.Labels[LabelKeyServerClaimNamespace]
+		if !nameExists || !namespaceExists {
+			return nil, nil, false, fmt.Errorf("IP address claim %q has no server claim labels", ipAddrClaimKey.String())
+		}
+		if name != ironcoremetalmachine.Name || namespace != ironcoremetalmachine.Namespace {
+			return nil, nil, false, fmt.Errorf("IP address claim %q's server claim labels don't match. Expected: name: %q, namespace: %q. Actual: name: %q, namespace: %q", ipAddrClaimKey.String(), ironcoremetalmachine.Name, ironcoremetalmachine.Namespace, name, namespace)
+		}
+
+		if ipClaim.Status.AddressRef.Name == "" {
+			log.V(3).Info("Waiting for IP address claim to be fulfilled", "name", ipAddrClaimKey.String())
+			return nil, nil, false, nil
 		}
 
 		ipAddrKey := client.ObjectKey{Namespace: ipClaim.Namespace, Name: ipClaim.Status.AddressRef.Name}
 		ipAddr := &capiv1beta2.IPAddress{}
 		if err := r.Get(ctx, ipAddrKey, ipAddr); err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		ipAddrCopy := ipAddr.DeepCopy()
 		if err := controllerutil.SetOwnerReference(ironcoremetalmachine, ipAddr, r.Client.Scheme()); err != nil {
-			return nil, nil, fmt.Errorf("failed to set OwnerReference: %w", err)
+			return nil, nil, false, fmt.Errorf("failed to set OwnerReference: %w", err)
 		}
 		if err := r.Patch(ctx, ipAddr, client.MergeFrom(ipAddrCopy)); err != nil {
-			return nil, nil, fmt.Errorf("failed to patch IPAddress: %w", err)
+			return nil, nil, false, fmt.Errorf("failed to patch IPAddress: %w", err)
 		}
 
-		IPAddressClaims = append(IPAddressClaims, ipClaim)
-		IPAddressesMetadata[networkRef.MetadataKey] = map[string]any{
+		claims = append(claims, ipClaim)
+		metadata[networkRef.MetadataKey] = map[string]any{
 			"ip":      ipAddr.Spec.Address,
 			"prefix":  ipAddr.Spec.Prefix,
 			"gateway": ipAddr.Spec.Gateway,
 		}
 	}
-	return IPAddressClaims, IPAddressesMetadata, nil
+	return claims, metadata, true, nil
 }
 
 func (r *IroncoreMetalMachineReconciler) applyIgnitionSecret(ctx context.Context, log *logr.Logger, capidatasecret *corev1.Secret, ignition []byte) (*corev1.Secret, error) {
@@ -537,13 +564,15 @@ func (r *IroncoreMetalMachineReconciler) setServerClaimOwnership(ctx context.Con
 func (r *IroncoreMetalMachineReconciler) ensureServerClaimBound(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim) (bool, error) {
 	claimObj := &metalv1alpha1.ServerClaim{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(serverClaim), claimObj); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Not yet visible in the cache; the ServerClaim watch will
+			// enqueue us once it is.
+			return false, nil
+		}
 		return false, err
 	}
 
-	if claimObj.Status.Phase != metalv1alpha1.PhaseBound {
-		return false, nil
-	}
-	return true, nil
+	return claimObj.Status.Phase == metalv1alpha1.PhaseBound, nil
 }
 
 func findAndReplaceIgnition(ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, data []byte) []byte {
@@ -551,4 +580,19 @@ func findAndReplaceIgnition(ironcoremetalmachine *infrav1alpha1.IroncoreMetalMac
 	modifiedData := strings.ReplaceAll(string(data), metalHostnamePlaceholder, ironcoremetalmachine.Name)
 
 	return []byte(modifiedData)
+}
+
+// ipAddressClaimToMachine maps an IPAddressClaim created by this controller to
+// its IroncoreMetalMachine via the labels set when the claim was created.
+func ipAddressClaimToMachine(_ context.Context, o client.Object) []reconcile.Request {
+	labels := o.GetLabels()
+	name, ok := labels[LabelKeyServerClaimName]
+	if !ok {
+		return nil
+	}
+	namespace, ok := labels[LabelKeyServerClaimNamespace]
+	if !ok {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: name, Namespace: namespace}}}
 }
