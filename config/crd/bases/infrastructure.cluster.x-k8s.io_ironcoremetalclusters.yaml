@@ -170,7 +170,11 @@ spec:
                   - status
                   - type
                   type: object
+                maxItems: 32
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               initialization:
                 description: |-
                   Initialization provides observations of the IroncoreMetalCluster initialization process.
@@ -182,6 +186,11 @@ spec:
                       NOTE: this field is part of the Cluster API contract, and it is used to orchestrate initial Cluster provisioning.
                     type: boolean
                 type: object
+              observedGeneration:
+                description: ObservedGeneration is the latest generation observed
+                  by the controller.
+                format: int64
+                type: integer
               ready:
                 description: |-
                   Ready denotes that the cluster (infrastructure) is ready.

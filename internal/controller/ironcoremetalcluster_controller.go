@@ -16,8 +16,8 @@ import (
 	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
-	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
+	"sigs.k8s.io/cluster-api/util/paused"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -64,9 +64,9 @@ func (r *IroncoreMetalClusterReconciler) Reconcile(ctx context.Context, req ctrl
 	logger = logger.WithValues("cluster", klog.KObj(cluster))
 	ctx = ctrl.LoggerInto(ctx, logger)
 
-	if annotations.IsPaused(cluster, metalCluster) {
-		logger.Info("IroncoreMetalCluster or owning Cluster is marked as paused, not reconciling")
-		return ctrl.Result{}, nil
+	// Set the Paused condition and stop reconciling if the object or the owning Cluster is paused
+	if isPaused, requeue, err := paused.EnsurePausedCondition(ctx, r.Client, cluster, metalCluster); err != nil || isPaused || requeue {
+		return ctrl.Result{}, err
 	}
 
 	// Create the scope.
@@ -100,29 +100,48 @@ func (r *IroncoreMetalClusterReconciler) Reconcile(ctx context.Context, req ctrl
 }
 
 func (r *IroncoreMetalClusterReconciler) reconcileDelete(ctx context.Context, clusterScope *scope.ClusterScope) (reconcile.Result, error) {
-	// We want to prevent deletion unless the owning cluster was flagged for deletion.
+	clusterScope.Logger.V(4).Info("reconciling IroncoreMetalCluster delete")
+
 	if clusterScope.Cluster.DeletionTimestamp.IsZero() {
+		conditions.Set(clusterScope.IroncoreMetalCluster, metav1.Condition{
+			Type:    clusterv1.DeletingCondition,
+			Status:  metav1.ConditionTrue,
+			Reason:  infrav1.WaitingForOwnerClusterDeletionReason,
+			Message: "Deletion requested but the owning Cluster is not being deleted",
+		})
 		clusterScope.Error(errors.New("deletion was requested but owning cluster wasn't deleted"), "Unable to delete IroncoreMetalCluster")
-		// We stop reconciling here. It will be triggered again once the owning cluster was deleted.
-		return reconcile.Result{}, nil
+		return ctrl.Result{RequeueAfter: infrav1.DefaultReconcilerRequeue}, nil
 	}
 
-	clusterScope.Logger.V(4).Info("reconciling IroncoreMetalCluster delete")
 	// Deletion usually should be triggered through the deletion of the owning cluster.
 	// If the IroncoreMetalCluster was also flagged for deletion (e.g. deletion using the manifest file)
 	// we should only allow to remove the finalizer when there are no IroncoreMetalMachines left.
 	machines, err := r.listIroncoreMetalMachinesForCluster(ctx, clusterScope)
 	if err != nil {
+		conditions.Set(clusterScope.IroncoreMetalCluster, metav1.Condition{
+			Type:    clusterv1.DeletingCondition,
+			Status:  metav1.ConditionUnknown,
+			Reason:  clusterv1.InternalErrorReason,
+			Message: "Failed to list IroncoreMetalMachines",
+		})
 		return reconcile.Result{}, errors.Wrapf(err, "could not retrieve metal machines for cluster %q", clusterScope.InfraClusterName())
 	}
 
-	// Requeue if there are one or more machines left.
 	if len(machines) > 0 {
-		clusterScope.Info("waiting for machines to be deleted", "remaining", len(machines))
+		conditions.Set(clusterScope.IroncoreMetalCluster, metav1.Condition{
+			Type:    clusterv1.DeletingCondition,
+			Status:  metav1.ConditionTrue,
+			Reason:  infrav1.WaitingForMachinesDeletionReason,
+			Message: fmt.Sprintf("Waiting for %d IroncoreMetalMachine(s) to be deleted", len(machines)),
+		})
 		return ctrl.Result{RequeueAfter: infrav1.DefaultReconcilerRequeue}, nil
 	}
 
-	clusterScope.Info("cluster deleted successfully")
+	conditions.Set(clusterScope.IroncoreMetalCluster, metav1.Condition{
+		Type:   clusterv1.DeletingCondition,
+		Status: metav1.ConditionTrue,
+		Reason: clusterv1.DeletionCompletedReason,
+	})
 	ctrlutil.RemoveFinalizer(clusterScope.IroncoreMetalCluster, infrav1.ClusterFinalizer)
 	return ctrl.Result{}, nil
 }
@@ -137,7 +156,7 @@ func (r *IroncoreMetalClusterReconciler) reconcileNormal(_ context.Context, clus
 	conditions.Set(clusterScope.IroncoreMetalCluster, metav1.Condition{
 		Type:    infrav1.IroncoreMetalClusterReady,
 		Status:  metav1.ConditionTrue,
-		Reason:  "Reconciled",
+		Reason:  infrav1.IroncoreMetalClusterReadyReason,
 		Message: "IronMetalCluster is ready",
 	})
 
@@ -155,7 +174,6 @@ func (r *IroncoreMetalClusterReconciler) listIroncoreMetalMachinesForCluster(ctx
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("listing machines", clusterScope.Name(), machineList.Items)
 	return machineList.Items, nil
 }
 
@@ -163,7 +181,7 @@ func (r *IroncoreMetalClusterReconciler) listIroncoreMetalMachinesForCluster(ctx
 func (r *IroncoreMetalClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.IroncoreMetalCluster{}).
-		WithEventFilter(predicates.ResourceNotPaused(mgr.GetScheme(), ctrl.LoggerFrom(ctx))).
+		WithEventFilter(predicates.ResourceIsChanged(mgr.GetScheme(), ctrl.LoggerFrom(ctx))).
 		Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(ctx, infrav1.GroupVersion.WithKind("IroncoreMetalCluster"), mgr.GetClient(), &infrav1.IroncoreMetalCluster{})),

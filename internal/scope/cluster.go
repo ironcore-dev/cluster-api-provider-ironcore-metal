@@ -100,12 +100,23 @@ func (s *ClusterScope) PatchObject() error {
 	if err := conditions.SetSummaryCondition(s.IroncoreMetalCluster, s.IroncoreMetalCluster, clusterv1.ReadyCondition,
 		conditions.ForConditionTypes{
 			infrav1.IroncoreMetalClusterReady,
+			clusterv1.DeletingCondition,
 		},
+		conditions.NegativePolarityConditionTypes{clusterv1.DeletingCondition},
+		conditions.IgnoreTypesIfMissing{clusterv1.DeletingCondition},
 	); err != nil {
 		return fmt.Errorf("unable to set summary condition: %w", err)
 	}
 
-	return s.patchHelper.Patch(context.TODO(), s.IroncoreMetalCluster)
+	return s.patchHelper.Patch(context.TODO(), s.IroncoreMetalCluster,
+		patch.WithOwnedConditions{Conditions: []string{
+			clusterv1.ReadyCondition,
+			clusterv1.PausedCondition,
+			clusterv1.DeletingCondition,
+			infrav1.IroncoreMetalClusterReady,
+		}},
+		patch.WithStatusObservedGeneration{},
+	)
 }
 
 // Close closes the current scope persisting the cluster configuration and status.

@@ -6,4 +6,11 @@ package v1alpha1
 const (
 	// IroncoreMetalClusterReady documents the status of IroncoreMetalCluster and its underlying resources.
 	IroncoreMetalClusterReady string = "ClusterReady"
+
+	IroncoreMetalClusterReadyReason    = "Ready"
+	IroncoreMetalClusterDeletingReason = "Deleting"
+
+	// Reasons for the Deleting condition.
+	WaitingForMachinesDeletionReason     = "WaitingForMachinesDeletion"
+	WaitingForOwnerClusterDeletionReason = "WaitingForOwnerClusterDeletion"
 )

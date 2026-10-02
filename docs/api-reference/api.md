@@ -303,6 +303,18 @@ NOTE: Fields in this struct are part of the Cluster API contract and are used to
 </tr>
 <tr>
 <td>
+<code>observedGeneration</code><br/>
+<em>
+int64
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ObservedGeneration is the latest generation observed by the controller.</p>
+</td>
+</tr>
+<tr>
+<td>
 <code>conditions</code><br/>
 <em>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#condition-v1-meta">
