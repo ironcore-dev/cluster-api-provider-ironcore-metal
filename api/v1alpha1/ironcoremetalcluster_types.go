@@ -45,8 +45,15 @@ type IroncoreMetalClusterStatus struct {
 	// +optional
 	Initialization IroncoreMetalClusterInitializationStatus `json:"initialization,omitempty,omitzero"`
 
+	// ObservedGeneration is the latest generation observed by the controller.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
 	// Conditions defines current service state of the IroncoreMetalCluster.
 	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +kubebuilder:validation:MaxItems=32
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
