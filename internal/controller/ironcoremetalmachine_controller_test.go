@@ -10,6 +10,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -178,13 +179,12 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				Expect(clientutils.PatchRemoveFinalizer(ctx, k8sClient, metalMachine, IroncoreMetalMachineFinalizer)).To(Succeed())
 				Expect(k8sClient.Delete(ctx, metalMachine)).To(Succeed())
 
-				serverClaim := &metalv1alpha1.ServerClaim{}
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), serverClaim)).To(Succeed())
-				Expect(k8sClient.Delete(ctx, serverClaim)).To(Succeed())
+				// Not every spec gets far enough to create these.
+				serverClaim := &metalv1alpha1.ServerClaim{ObjectMeta: metav1.ObjectMeta{Name: metalMachine.Name, Namespace: metalMachine.Namespace}}
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, serverClaim))).To(Succeed())
 
-				metalSecret := &corev1.Secret{}
-				Expect(k8sClient.Get(ctx, metalSecretNN, metalSecret)).To(Succeed())
-				Expect(k8sClient.Delete(ctx, metalSecret)).To(Succeed())
+				metalSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: metalSecretNN.Name, Namespace: metalSecretNN.Namespace}}
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, metalSecret))).To(Succeed())
 			}
 		})
 
@@ -236,6 +236,24 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				ipAddressClaim *capiv1beta2.IPAddressClaim
 				ipAddress      *capiv1beta2.IPAddress
 			)
+
+			// reconcileWithIPAM runs the first reconcile, which only creates the
+			// IPAddressClaim and returns while waiting for IPAM, waits for the
+			// simulated IPAM provider (goroutine in BeforeEach) to fulfil the claim,
+			// then reconciles again.
+			reconcileWithIPAM := func() {
+				req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(metalMachine)}
+
+				out, err := controllerReconciler.Reconcile(ctx, req)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(Equal(ctrl.Result{}))
+
+				Eventually(Object(ipAddressClaim)).Should(HaveField("Status.AddressRef.Name", Equal(ipAddress.Name)))
+
+				out, err = controllerReconciler.Reconcile(ctx, req)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(Equal(ctrl.Result{}))
+			}
 
 			BeforeEach(func() {
 				ipAddressClaim = &capiv1beta2.IPAddressClaim{
@@ -290,10 +308,7 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			})
 
 			It("should create the ignition secret with the ip address", func() {
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(metalMachine),
-				})
-				Expect(err).NotTo(HaveOccurred())
+				reconcileWithIPAM()
 
 				ign := base64.StdEncoding.EncodeToString([]byte(`{"meta-key":{"gateway":"10.11.12.1","ip":"10.11.12.13","prefix":24}}`))
 				expectIgnition(
@@ -302,10 +317,7 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			})
 
 			It("should set the owner reference on the ip address claim", func() {
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(metalMachine),
-				})
-				Expect(err).NotTo(HaveOccurred())
+				reconcileWithIPAM()
 
 				serverClaim := &metalv1alpha1.ServerClaim{}
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), serverClaim)).To(Succeed())
@@ -323,10 +335,7 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			})
 
 			It("should set the owner reference on the ip address", func() {
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(metalMachine),
-				})
-				Expect(err).NotTo(HaveOccurred())
+				reconcileWithIPAM()
 
 				Eventually(func() []metav1.OwnerReference {
 					return getOwnerReferences(ipAddress)
@@ -346,10 +355,7 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				})
 
 				It("should create the ignition secret with the ip address and the metadata", func() {
-					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-						NamespacedName: client.ObjectKeyFromObject(metalMachine),
-					})
-					Expect(err).NotTo(HaveOccurred())
+					reconcileWithIPAM()
 
 					ign := base64.StdEncoding.EncodeToString([]byte(`{"foo":"bar","meta-key":{"gateway":"10.11.12.1","ip":"10.11.12.13","prefix":24}}`))
 					expectIgnition(
@@ -357,12 +363,29 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 							ign + `"},"filesystem":"root","mode":420,"path":"/var/lib/metal-cloud-config/metadata"}]}}`)
 				})
 			})
-			It("should set ProviderID and Ready status when ServerClaim is bound", func() {
-				// 1st call to create server claim
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+			It("should wait without error or requeue until the IPAddressClaim is fulfilled", func() {
+				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(metalMachine),
 				})
 				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(Equal(ctrl.Result{}))
+
+				By("Creating the IPAddressClaim with the machine labels")
+				Eventually(Object(ipAddressClaim)).Should(SatisfyAll(
+					HaveField("Labels", HaveKeyWithValue(LabelKeyServerClaimName, metalMachine.Name)),
+					HaveField("Labels", HaveKeyWithValue(LabelKeyServerClaimNamespace, metalMachine.Namespace)),
+				))
+
+				By("Not creating the ServerClaim before the address is allocated")
+				serverClaim := &metalv1alpha1.ServerClaim{}
+				err = k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), serverClaim)
+				Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			})
+			It("should set ProviderID and Ready status when ServerClaim is bound", func() {
+				// Creates the IPAddressClaim, then (once fulfilled) the ServerClaim.
+				// The claim isn't bound yet, so no requeue: the ServerClaim watch
+				// re-triggers the reconcile.
+				reconcileWithIPAM()
 
 				// get created server claim to then bound it
 				serverClaim := &metalv1alpha1.ServerClaim{}
@@ -600,6 +623,28 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 
 				Expect(err).To(HaveOccurred())
 				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "ServerClaim should not exist because of early return")
+			})
+		})
+		When("cluster infrastructure is not provisioned", func() {
+			It("should return without requeue and not create resources", func() {
+				Eventually(UpdateStatus(cluster, func() {
+					cluster.Status.Initialization.InfrastructureProvisioned = ptr.To(false)
+				})).Should(Succeed())
+
+				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).NotTo(HaveOccurred())
+				// No requeue: the Cluster watch enqueues the machine once
+				// infrastructure becomes provisioned.
+				Expect(out).To(Equal(ctrl.Result{}))
+
+				serverClaim := &metalv1alpha1.ServerClaim{}
+				err = k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), serverClaim)
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "ServerClaim should not exist before infrastructure is provisioned")
+
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), metalMachine)).To(Succeed())
+				Expect(metalMachine.Status.Initialization.Provisioned).To(BeNil())
 			})
 		})
 		When("bootstrap data is empty", func() {
