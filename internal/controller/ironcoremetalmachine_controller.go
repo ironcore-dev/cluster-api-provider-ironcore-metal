@@ -55,6 +55,7 @@ const (
 	fileMode                      = 0644
 	fileSystem                    = "root"
 	bootstrapDataKey              = "value"
+	serverClaimKind               = "ServerClaim"
 	metalHostnamePlaceholder      = "%24%24%7BMETAL_HOSTNAME%7D"
 	LabelKeyServerClaimName       = "metal.ironcore.dev/server-claim-name"
 	LabelKeyServerClaimNamespace  = "metal.ironcore.dev/server-claim-namespace"
@@ -206,6 +207,10 @@ func (r *IroncoreMetalMachineReconciler) SetupWithManager(ctx context.Context, m
 			&clusterapiv1beta2.Machine{},
 			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1alpha1.GroupVersion.WithKind("IroncoreMetalMachine"))),
 		).
+		Watches(
+			&infrav1alpha1.IroncoreMetalCluster{},
+			handler.EnqueueRequestsFromMapFunc(r.metalClusterToMachines(ctx)),
+		).
 		// Enqueue all IroncoreMetalMachines of a Cluster when its infrastructure
 		// becomes provisioned or it is paused/unpaused.
 		Watches(
@@ -220,6 +225,49 @@ func (r *IroncoreMetalMachineReconciler) SetupWithManager(ctx context.Context, m
 			handler.EnqueueRequestsFromMapFunc(ipAddressClaimToMachine),
 		).
 		Complete(r)
+}
+
+func (r *IroncoreMetalMachineReconciler) metalClusterToMachines(ctx context.Context) handler.MapFunc {
+	log := ctrl.LoggerFrom(ctx)
+	return func(ctx context.Context, o client.Object) []ctrl.Request {
+		metalCluster, ok := o.(*infrav1alpha1.IroncoreMetalCluster)
+		if !ok {
+			log.Error(fmt.Errorf("expected IroncoreMetalCluster, got %T", o), "failed to map IroncoreMetalCluster to machines")
+			return nil
+		}
+
+		cluster, err := util.GetOwnerCluster(ctx, r.Client, metalCluster.ObjectMeta)
+		switch {
+		case apierrors.IsNotFound(err) || cluster == nil:
+			return nil
+		case err != nil:
+			log.Error(err, "failed to get owning Cluster for IroncoreMetalCluster")
+			return nil
+		}
+
+		machineList := &clusterapiv1beta2.MachineList{}
+		if err := r.List(ctx, machineList,
+			client.InNamespace(metalCluster.Namespace),
+			client.MatchingLabels{clusterapiv1beta2.ClusterNameLabel: cluster.Name},
+		); err != nil {
+			log.Error(err, "failed to list Machines for IroncoreMetalCluster")
+			return nil
+		}
+
+		var requests []ctrl.Request
+		for _, machine := range machineList.Items {
+			if machine.Spec.InfrastructureRef.Kind != "IroncoreMetalMachine" {
+				continue
+			}
+			requests = append(requests, ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: machine.Namespace,
+					Name:      machine.Spec.InfrastructureRef.Name,
+				},
+			})
+		}
+		return requests
+	}
 }
 
 func (r *IroncoreMetalMachineReconciler) reconcileDelete(ctx context.Context, machineScope *scope.MachineScope) (ctrl.Result, error) {
@@ -258,15 +306,30 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 	}
 	machineScope.Info("Ensured finalizer has been added")
 
-	// Fetch the bootstrap data secret.
-	bootstrapSecret := &corev1.Secret{}
-	secretName := types.NamespacedName{
-		Namespace: machineScope.Machine.Namespace,
-		Name:      *machineScope.Machine.Spec.Bootstrap.DataSecretName,
+	serverClaim := &metalv1alpha1.ServerClaim{}
+	claimKey := client.ObjectKey{Namespace: machineScope.IroncoreMetalMachine.Namespace, Name: machineScope.IroncoreMetalMachine.Name}
+	claimExists := true
+	if err := r.Get(ctx, claimKey, serverClaim); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, fmt.Errorf("failed to get ServerClaim: %w", err)
+		}
+		claimExists = false
 	}
-	if err := r.Get(ctx, secretName, bootstrapSecret); err != nil {
-		machineScope.Error(err, "failed to get bootstrap data secret")
-		return ctrl.Result{}, err
+
+	var bootstrapSecret *corev1.Secret
+	if !claimExists {
+		bootstrapSecret = &corev1.Secret{}
+		secretName := types.NamespacedName{
+			Namespace: machineScope.Machine.Namespace,
+			Name:      *machineScope.Machine.Spec.Bootstrap.DataSecretName,
+		}
+		if err := r.Get(ctx, secretName, bootstrapSecret); err != nil {
+			if apierrors.IsNotFound(err) {
+				machineScope.Info("Bootstrap data secret is not available yet")
+				return ctrl.Result{RequeueAfter: infrav1alpha1.DefaultReconcilerRequeue}, nil
+			}
+			return ctrl.Result{}, fmt.Errorf("failed to get bootstrap data secret: %w", err)
+		}
 	}
 
 	ipAddressClaims, ipAddressesMetadata, ready, err := r.getOrCreateIPAddressClaims(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine)
@@ -275,47 +338,24 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 		return ctrl.Result{}, err
 	}
 	if !ready {
-		// No requeue needed: the IPAddressClaim watch enqueues this machine
-		// once the IPAM provider has allocated the address.
+		// No requeue needed: the IPAddressClaim watch enqueues this machine once
+		// the IPAM provider has allocated the address.
 		machineScope.Info("Waiting for IPAddressClaims to be fulfilled")
 		return ctrl.Result{}, nil
 	}
 
-	machineScope.Info("Creating an ignition", "Machine", machineScope.IroncoreMetalMachine.Name)
-	ignition, err := r.createIgnition(machineScope.IroncoreMetalMachine, bootstrapSecret.Data[bootstrapDataKey], ipAddressesMetadata)
-	if err != nil {
-		machineScope.Error(err, "failed to create an ignition")
-		return ctrl.Result{}, err
+	if !claimExists {
+		serverClaim, err = r.createServerClaimResources(ctx, machineScope, bootstrapSecret, ipAddressesMetadata)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
-	machineScope.Info("Creating IgnitionSecret", "Secret", machineScope.IroncoreMetalMachine.Name)
-	ignitionSecret, err := r.applyIgnitionSecret(ctx, machineScope.Logger, bootstrapSecret, ignition)
-	if err != nil {
-		machineScope.Error(err, "failed to create or patch ignition secret")
-		return ctrl.Result{}, err
+	if err := r.setServerClaimOwnership(ctx, serverClaim, ipAddressClaims); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to set ServerClaim ownership: %w", err)
 	}
 
-	machineScope.Info("Creating ServerClaim", "ServerClaim", machineScope.IroncoreMetalMachine.Name)
-	serverClaim, err := r.applyServerClaim(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine, ignitionSecret)
-	if err != nil {
-		machineScope.Error(err, "failed to create or patch ServerClaim")
-		return ctrl.Result{}, err
-	}
-
-	err = r.setServerClaimOwnership(ctx, serverClaim, ipAddressClaims)
-	if err != nil {
-		machineScope.Error(err, "failed to set ServerClaim ownership")
-		return ctrl.Result{}, err
-	}
-
-	bound, err := r.ensureServerClaimBound(ctx, serverClaim)
-	if err != nil {
-		machineScope.Error(err, "failed to check ServerClaim binding")
-		return ctrl.Result{}, err
-	}
-	if !bound {
-		// No requeue needed: the ServerClaim watch enqueues this machine
-		// once the claim's phase changes.
+	if serverClaim.Status.Phase != metalv1alpha1.PhaseBound {
 		machineScope.Info("Waiting for ServerClaim to be Bound")
 		return ctrl.Result{}, nil
 	}
@@ -331,6 +371,28 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 	machineScope.Info("IroncoreMetalMachine is ready")
 
 	return reconcile.Result{}, nil
+}
+
+func (r *IroncoreMetalMachineReconciler) createServerClaimResources(ctx context.Context, machineScope *scope.MachineScope, bootstrapSecret *corev1.Secret, ipAddressesMetadata map[string]any) (*metalv1alpha1.ServerClaim, error) {
+	machineScope.Info("Creating an ignition", "Machine", machineScope.IroncoreMetalMachine.Name)
+	ignition, err := r.createIgnition(machineScope.IroncoreMetalMachine, bootstrapSecret.Data[bootstrapDataKey], ipAddressesMetadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create an ignition: %w", err)
+	}
+
+	machineScope.Info("Creating IgnitionSecret", "Secret", machineScope.IroncoreMetalMachine.Name)
+	ignitionSecret, err := r.applyIgnitionSecret(ctx, machineScope.Logger, bootstrapSecret, ignition)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create or patch ignition secret: %w", err)
+	}
+
+	machineScope.Info("Creating ServerClaim", serverClaimKind, machineScope.IroncoreMetalMachine.Name)
+	serverClaim, err := r.applyServerClaim(ctx, machineScope.Logger, machineScope.IroncoreMetalMachine, ignitionSecret)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create or patch ServerClaim: %w", err)
+	}
+
+	return serverClaim, nil
 }
 
 func (r *IroncoreMetalMachineReconciler) createIgnition(ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, ignition []byte, ipAddressesMetadata map[string]any) ([]byte, error) {
@@ -502,7 +564,7 @@ func (r *IroncoreMetalMachineReconciler) applyServerClaim(ctx context.Context, l
 		},
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: metalv1alpha1.GroupVersion.String(),
-			Kind:       "ServerClaim",
+			Kind:       serverClaimKind,
 		},
 		Spec: metalv1alpha1.ServerClaimSpec{
 			Power: metalv1alpha1.PowerOn,
@@ -523,7 +585,7 @@ func (r *IroncoreMetalMachineReconciler) applyServerClaim(ctx context.Context, l
 	if err != nil {
 		return nil, fmt.Errorf("failed to create or patch ServerClaim: %w", err)
 	}
-	log.Info("Created or Patched ServerClaim", "ServerClaim", serverClaimObj.Name, "Operation", opResult)
+	log.Info("Created or Patched ServerClaim", serverClaimKind, serverClaimObj.Name, "Operation", opResult)
 
 	return serverClaimObj, nil
 }
@@ -571,20 +633,6 @@ func (r *IroncoreMetalMachineReconciler) setServerClaimOwnership(ctx context.Con
 	}
 
 	return nil
-}
-
-func (r *IroncoreMetalMachineReconciler) ensureServerClaimBound(ctx context.Context, serverClaim *metalv1alpha1.ServerClaim) (bool, error) {
-	claimObj := &metalv1alpha1.ServerClaim{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(serverClaim), claimObj); err != nil {
-		if apierrors.IsNotFound(err) {
-			// Not yet visible in the cache; the ServerClaim watch will
-			// enqueue us once it is.
-			return false, nil
-		}
-		return false, err
-	}
-
-	return claimObj.Status.Phase == metalv1alpha1.PhaseBound, nil
 }
 
 func findAndReplaceIgnition(ironcoremetalmachine *infrav1alpha1.IroncoreMetalMachine, data []byte) []byte {
