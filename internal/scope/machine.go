@@ -5,12 +5,14 @@ package scope
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	infrav1 "github.com/ironcore-dev/cluster-api-provider-ironcore-metal/api/v1alpha1"
 	"github.com/ironcore-dev/metal-operator/api/v1alpha1"
 	"github.com/pkg/errors"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -82,10 +84,39 @@ func NewMachineScope(params MachineScopeParams) (*MachineScope, error) {
 
 // PatchObject persists the Machine configuration and status.
 func (m *MachineScope) PatchObject() error {
+	// Always update the Ready condition by summarizing the state of the other conditions.
+	if err := conditions.SetSummaryCondition(m.IroncoreMetalMachine, m.IroncoreMetalMachine, infrav1.IroncoreMetalMachineReadyCondition,
+		conditions.ForConditionTypes{
+			infrav1.IroncoreMetalMachineIPAddressesReadyCondition,
+			infrav1.IroncoreMetalMachineServerClaimReadyCondition,
+		},
+		// IPAddressesReady is only set once the controller reaches the IP address step, i.e. after
+		// the Cluster infrastructure and the bootstrap data are available. Until then ServerClaimReady
+		// already surfaces what the machine is waiting for.
+		conditions.IgnoreTypesIfMissing{
+			infrav1.IroncoreMetalMachineIPAddressesReadyCondition,
+		},
+		// Using a custom merge strategy to override reasons applied during merge.
+		conditions.CustomMergeStrategy{
+			MergeStrategy: conditions.DefaultMergeStrategy(
+				conditions.ComputeReasonFunc(conditions.GetDefaultComputeMergeReasonFunc(
+					infrav1.IroncoreMetalMachineNotReadyReason,
+					infrav1.IroncoreMetalMachineReadyUnknownReason,
+					infrav1.IroncoreMetalMachineReadyReason,
+				)),
+			),
+		},
+	); err != nil {
+		return fmt.Errorf("unable to set summary condition: %w", err)
+	}
+
 	// Patch the object, ignoring conflicts on the conditions owned by this controller.
 	return m.patchHelper.Patch(context.TODO(), m.IroncoreMetalMachine,
 		patch.WithOwnedConditions{Conditions: []string{
 			clusterv1.PausedCondition,
+			infrav1.IroncoreMetalMachineReadyCondition,
+			infrav1.IroncoreMetalMachineIPAddressesReadyCondition,
+			infrav1.IroncoreMetalMachineServerClaimReadyCondition,
 		}},
 		patch.WithStatusObservedGeneration{},
 	)
