@@ -68,8 +68,15 @@ type IroncoreMetalMachineStatus struct {
 	// +optional
 	Initialization IroncoreMetalMachineInitializationStatus `json:"initialization,omitempty,omitzero"`
 
+	// ObservedGeneration is the latest generation observed by the controller.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
 	// Conditions defines current service state of the IroncoreMetalMachine
 	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +kubebuilder:validation:MaxItems=32
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
@@ -83,6 +90,16 @@ type IroncoreMetalMachine struct {
 
 	Spec   IroncoreMetalMachineSpec   `json:"spec,omitempty"`
 	Status IroncoreMetalMachineStatus `json:"status,omitempty"`
+}
+
+// GetConditions returns the set of conditions for this object.
+func (m *IroncoreMetalMachine) GetConditions() []metav1.Condition {
+	return m.Status.Conditions
+}
+
+// SetConditions sets conditions for an API object.
+func (m *IroncoreMetalMachine) SetConditions(conditions []metav1.Condition) {
+	m.Status.Conditions = conditions
 }
 
 // +kubebuilder:object:root=true
