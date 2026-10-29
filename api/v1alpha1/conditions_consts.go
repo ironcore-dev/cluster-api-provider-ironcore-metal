@@ -24,7 +24,8 @@ const (
 // IroncoreMetalMachine's Ready condition and corresponding reasons.
 const (
 	// IroncoreMetalMachineReadyCondition is true if the IroncoreMetalMachine's IPAddressesReady and
-	// ServerClaimReady conditions are true.
+	// ServerClaimReady conditions are true. During deletion ServerClaimReady is false with the
+	// Deleting reason, so Ready is false as well.
 	IroncoreMetalMachineReadyCondition = clusterv1.ReadyCondition
 
 	// IroncoreMetalMachineReadyReason surfaces when the IroncoreMetalMachine readiness criteria are met.
@@ -96,4 +97,8 @@ const (
 	// IroncoreMetalMachineServerClaimInternalErrorReason surfaces unexpected failures when reading or
 	// writing the bootstrap data, the ignition secret or the ServerClaim.
 	IroncoreMetalMachineServerClaimInternalErrorReason = clusterv1.InternalErrorReason
+
+	// IroncoreMetalMachineServerClaimDeletingReason surfaces when the IroncoreMetalMachine is being
+	// deleted.
+	IroncoreMetalMachineServerClaimDeletingReason = clusterv1.DeletingReason
 )

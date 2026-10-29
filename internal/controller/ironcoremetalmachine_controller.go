@@ -237,6 +237,13 @@ func (r *IroncoreMetalMachineReconciler) SetupWithManager(ctx context.Context, m
 func (r *IroncoreMetalMachineReconciler) reconcileDelete(_ context.Context, machineScope *scope.MachineScope) (ctrl.Result, error) {
 	machineScope.Info("Deleting IroncoreMetalMachine")
 
+	// Surface the deletion on the ServerClaimReady condition; the Ready summary picks it up.
+	conditions.Set(machineScope.IroncoreMetalMachine, metav1.Condition{
+		Type:   infrav1alpha1.IroncoreMetalMachineServerClaimReadyCondition,
+		Status: metav1.ConditionFalse,
+		Reason: infrav1alpha1.IroncoreMetalMachineServerClaimDeletingReason,
+	})
+
 	// insert ServerClaim deletion logic here
 
 	// The finalizer removal is persisted by the scope's patch helper, like any other change.
