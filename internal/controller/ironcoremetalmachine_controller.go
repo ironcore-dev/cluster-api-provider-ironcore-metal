@@ -31,7 +31,7 @@ import (
 	clusterapiv1beta2 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	capiv1beta2 "sigs.k8s.io/cluster-api/api/ipam/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
-	"sigs.k8s.io/cluster-api/util/annotations"
+	"sigs.k8s.io/cluster-api/util/paused"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -118,12 +118,13 @@ func (r *IroncoreMetalMachineReconciler) Reconcile(ctx context.Context, req ctrl
 		}
 	}
 
-	if annotations.IsPaused(cluster, metalMachine) {
-		logger.Info("IroncoreMetalMachine or linked Cluster is marked as paused, not reconciling")
-		return ctrl.Result{}, nil
-	}
-
 	logger = logger.WithValues("cluster", klog.KObj(cluster))
+	ctx = ctrl.LoggerInto(ctx, logger)
+
+	// Set the Paused condition and stop reconciling if the object or the owning Cluster is paused
+	if isPaused, requeue, err := paused.EnsurePausedCondition(ctx, r.Client, cluster, metalMachine); err != nil || isPaused || requeue {
+		return ctrl.Result{}, err
+	}
 
 	metalClusterName := client.ObjectKey{
 		Namespace: metalMachine.Namespace,
@@ -172,12 +173,6 @@ func (r *IroncoreMetalMachineReconciler) Reconcile(ctx context.Context, req ctrl
 			logger.Error(err, "failed to close IroncoreMetalMachine scope")
 		}
 	}()
-
-	// Return early if the object or Cluster is paused.
-	if annotations.IsPaused(cluster, metalMachine) {
-		logger.Info("IroncoreMetalMachine or linked Cluster is marked as paused. Won't reconcile normally")
-		return reconcile.Result{}, nil
-	}
 
 	// Handle deleted machines
 	if !metalMachine.DeletionTimestamp.IsZero() {

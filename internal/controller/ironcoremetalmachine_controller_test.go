@@ -10,11 +10,13 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	gomegatypes "github.com/onsi/gomega/types"
 	. "sigs.k8s.io/controller-runtime/pkg/envtest/komega"
 
 	corev1 "k8s.io/api/core/v1"
@@ -34,6 +36,41 @@ import (
 )
 
 const ironcoreMetalMachine = "IroncoreMetalMachine"
+
+// haveCondition matches an object whose status has a condition of the given
+// type, status and reason.
+func haveCondition(conditionType string, status metav1.ConditionStatus, reason string) gomegatypes.GomegaMatcher {
+	return HaveField("Status.Conditions", ContainElement(SatisfyAll(
+		HaveField("Type", conditionType),
+		HaveField("Status", status),
+		HaveField("Reason", reason),
+	)))
+}
+
+// initPausedCondition runs the first reconcile of an IroncoreMetalMachine if
+// its Paused condition has not been set yet.
+//
+// paused.EnsurePausedCondition patches the Paused condition and returns early
+// whenever that condition changes, relying on the resulting watch event to
+// re-enqueue the object. These tests call Reconcile directly, so the reconcile
+// that only initialises the Paused condition has to be done explicitly before
+// a spec can exercise the rest of the reconcile logic.
+//
+// If the condition is already set (e.g. the object is reused across specs),
+// a reconcile would run the full reconcile logic, so it is skipped.
+func initPausedCondition(ctx context.Context, r *IroncoreMetalMachineReconciler, metalMachine *infrav1alpha1.IroncoreMetalMachine) {
+	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), metalMachine)).To(Succeed())
+	if apimeta.FindStatusCondition(metalMachine.Status.Conditions, clusterapiv1beta2.PausedCondition) != nil {
+		return
+	}
+
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(metalMachine)})
+	Expect(err).NotTo(HaveOccurred())
+
+	Eventually(Object(metalMachine)).Should(HaveField("Status.Conditions", ContainElement(
+		HaveField("Type", clusterapiv1beta2.PausedCondition),
+	)))
+}
 
 var _ = Describe("IroncoreMetalMachine Controller", func() {
 	When("all resources are present to reconcile", func() {
@@ -168,6 +205,8 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				}
 				return clientutils.PatchAddFinalizer(ctx, k8sClient, metalMachine, IroncoreMetalMachineFinalizer)
 			}).Should(Succeed())
+
+			initPausedCondition(ctx, controllerReconciler, metalMachine)
 		})
 
 		AfterEach(func() {
@@ -195,6 +234,79 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			expectIgnition(`{"name":"metal-machine"}`)
+		})
+
+		It("should set the Paused condition to False when neither the machine nor the cluster is paused", func() {
+			Expect(get(metalMachine)).To(Succeed())
+			Expect(metalMachine).To(haveCondition(clusterapiv1beta2.PausedCondition, metav1.ConditionFalse, clusterapiv1beta2.NotPausedReason))
+		})
+
+		When("the IroncoreMetalMachine is paused", func() {
+			BeforeEach(func() {
+				metalMachine.Annotations = map[string]string{clusterapiv1beta2.PausedAnnotation: "true"}
+			})
+
+			It("should set the Paused condition to True and not reconcile", func() {
+				Expect(get(metalMachine)).To(Succeed())
+				Expect(metalMachine).To(haveCondition(clusterapiv1beta2.PausedCondition, metav1.ConditionTrue, clusterapiv1beta2.PausedReason))
+
+				By("Reconciling again while paused")
+				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(Equal(ctrl.Result{}))
+
+				By("Not creating the ignition secret or the ServerClaim")
+				Expect(apierrors.IsNotFound(k8sClient.Get(ctx, metalSecretNN, &corev1.Secret{}))).To(BeTrue())
+				Expect(apierrors.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), &metalv1alpha1.ServerClaim{}))).To(BeTrue())
+
+				Expect(get(metalMachine)).To(Succeed())
+				Expect(metalMachine.Status.Initialization.Provisioned).To(BeNil())
+			})
+
+			It("should set the Paused condition to False and reconcile after unpausing", func() {
+				Eventually(Update(metalMachine, func() {
+					delete(metalMachine.Annotations, clusterapiv1beta2.PausedAnnotation)
+				})).Should(Succeed())
+
+				By("Flipping the Paused condition on the first reconcile after unpausing")
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(get(metalMachine)).To(Succeed())
+				Expect(metalMachine).To(haveCondition(clusterapiv1beta2.PausedCondition, metav1.ConditionFalse, clusterapiv1beta2.NotPausedReason))
+
+				By("Reconciling normally on the next reconcile")
+				_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).NotTo(HaveOccurred())
+				expectIgnition(`{"name":"metal-machine"}`)
+			})
+		})
+
+		When("the owning Cluster is paused", func() {
+			BeforeEach(func() {
+				cluster.Spec.Paused = ptr.To(true)
+			})
+
+			It("should set the Paused condition to True and not reconcile", func() {
+				Expect(get(metalMachine)).To(Succeed())
+				Expect(metalMachine).To(haveCondition(clusterapiv1beta2.PausedCondition, metav1.ConditionTrue, clusterapiv1beta2.PausedReason))
+
+				By("Reconciling again while paused")
+				out, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(Equal(ctrl.Result{}))
+
+				By("Not creating the ignition secret or the ServerClaim")
+				Expect(apierrors.IsNotFound(k8sClient.Get(ctx, metalSecretNN, &corev1.Secret{}))).To(BeTrue())
+				Expect(apierrors.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), &metalv1alpha1.ServerClaim{}))).To(BeTrue())
+			})
 		})
 
 		When("the metadata is present in the metal machine", func() {
@@ -576,6 +688,8 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				}).Should(Succeed())
 				createOnce = true
 			}
+
+			initPausedCondition(ctx, controllerReconciler, metalMachine)
 		})
 
 		AfterEach(func() {

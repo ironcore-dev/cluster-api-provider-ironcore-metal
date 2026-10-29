@@ -82,10 +82,13 @@ func NewMachineScope(params MachineScopeParams) (*MachineScope, error) {
 
 // PatchObject persists the Machine configuration and status.
 func (m *MachineScope) PatchObject() error {
-	// always update the readyCondition.
-	// TBD readyCondition
-
-	return m.patchHelper.Patch(context.TODO(), m.IroncoreMetalMachine)
+	// Patch the object, ignoring conflicts on the conditions owned by this controller.
+	return m.patchHelper.Patch(context.TODO(), m.IroncoreMetalMachine,
+		patch.WithOwnedConditions{Conditions: []string{
+			clusterv1.PausedCondition,
+		}},
+		patch.WithStatusObservedGeneration{},
+	)
 }
 
 // Close closes the current scope persisting the Machine configuration and status.
