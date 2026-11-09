@@ -304,6 +304,10 @@ func (r *IroncoreMetalMachineReconciler) reconcileNormal(ctx context.Context, ma
 		claimExists = false
 	}
 
+	if claimExists && !metav1.IsControlledBy(serverClaim, machineScope.IroncoreMetalMachine) {
+		return ctrl.Result{}, fmt.Errorf("ServerClaim %s not controlled by IroncoreMetalMachine %s", claimKey, machineScope.IroncoreMetalMachine.Name)
+	}
+
 	var bootstrapSecret *corev1.Secret
 	if !claimExists {
 		bootstrapSecret = &corev1.Secret{}

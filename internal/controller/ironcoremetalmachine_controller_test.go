@@ -212,6 +212,29 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			Expect(result.RequeueAfter).To(Equal(infrav1alpha1.DefaultReconcilerRequeue))
 		})
 
+		It("should fail when a ServerClaim exists but is not controlled by this IroncoreMetalMachine", func() {
+			orphanClaim := &metalv1alpha1.ServerClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      metalMachine.Name,
+					Namespace: metalMachine.Namespace,
+				},
+				Spec: metalv1alpha1.ServerClaimSpec{
+					Power: metalv1alpha1.PowerOn,
+					Image: "test-image",
+				},
+			}
+			Expect(k8sClient.Create(ctx, orphanClaim)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, orphanClaim))).To(Succeed())
+			})
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(metalMachine),
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("not controlled by"))
+		})
+
 		It("should reconcile an existing ServerClaim without fetching the bootstrap data secret", func() {
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: client.ObjectKeyFromObject(metalMachine),
