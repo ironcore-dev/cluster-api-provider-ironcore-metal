@@ -238,10 +238,12 @@ func (r *IroncoreMetalMachineReconciler) metalClusterToMachines(ctx context.Cont
 
 		cluster, err := util.GetOwnerCluster(ctx, r.Client, metalCluster.ObjectMeta)
 		switch {
-		case apierrors.IsNotFound(err) || cluster == nil:
+		case apierrors.IsNotFound(err):
 			return nil
 		case err != nil:
 			log.Error(err, "failed to get owning Cluster for IroncoreMetalCluster")
+			return nil
+		case cluster == nil:
 			return nil
 		}
 
