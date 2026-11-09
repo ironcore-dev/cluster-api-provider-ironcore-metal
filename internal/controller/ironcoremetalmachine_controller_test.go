@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterapiv1beta2 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	capiv1beta2 "sigs.k8s.io/cluster-api/api/ipam/v1beta2"
+	"sigs.k8s.io/cluster-api/util"
 
 	infrav1alpha1 "github.com/ironcore-dev/cluster-api-provider-ironcore-metal/api/v1alpha1"
 	"github.com/ironcore-dev/controller-utils/clientutils"
@@ -276,18 +277,25 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			infrastructureCluster := metalCluster.DeepCopy()
 			infrastructureCluster.Name = "infrastructure-cluster"
 			Expect(controllerutil.SetControllerReference(ownerCluster, infrastructureCluster, k8sClient.Scheme())).To(Succeed())
-			ownedMachine := machine.DeepCopy()
-			ownedMachine.Labels[clusterapiv1beta2.ClusterNameLabel] = ownerCluster.Name
-			ownedMachine.Spec.InfrastructureRef.Name = metalMachine.Name
+			ownedMetalMachine := metalMachine.DeepCopy()
+			ownedMetalMachine.Labels = map[string]string{
+				clusterapiv1beta2.ClusterNameLabel: ownerCluster.Name,
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(k8sClient.Scheme()).
+				WithRESTMapper(k8sClient.RESTMapper()).
+				WithObjects(ownerCluster, infrastructureCluster, ownedMetalMachine).
+				Build()
+
+			clusterToMachines, err := util.ClusterToTypedObjectsMapper(fakeClient, &infrav1alpha1.IroncoreMetalMachineList{}, k8sClient.Scheme())
+			Expect(err).NotTo(HaveOccurred())
 
 			mapperReconciler := &IroncoreMetalMachineReconciler{
-				Client: fake.NewClientBuilder().
-					WithScheme(k8sClient.Scheme()).
-					WithObjects(ownerCluster, infrastructureCluster, ownedMachine).
-					Build(),
+				Client: fakeClient,
 				Scheme: k8sClient.Scheme(),
 			}
-			mapper := mapperReconciler.metalClusterToMachines(ctx)
+			mapper := mapperReconciler.metalClusterToMachines(ctx, clusterToMachines)
 			Expect(mapper(ctx, infrastructureCluster)).To(ContainElement(ctrl.Request{NamespacedName: types.NamespacedName{
 				Namespace: namespace,
 				Name:      metalMachine.Name,

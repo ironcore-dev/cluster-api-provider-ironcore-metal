@@ -209,7 +209,7 @@ func (r *IroncoreMetalMachineReconciler) SetupWithManager(ctx context.Context, m
 		).
 		Watches(
 			&infrav1alpha1.IroncoreMetalCluster{},
-			handler.EnqueueRequestsFromMapFunc(r.metalClusterToMachines(ctx)),
+			handler.EnqueueRequestsFromMapFunc(r.metalClusterToMachines(ctx, clusterToMachines)),
 		).
 		// Enqueue all IroncoreMetalMachines of a Cluster when its infrastructure
 		// becomes provisioned or it is paused/unpaused.
@@ -227,7 +227,7 @@ func (r *IroncoreMetalMachineReconciler) SetupWithManager(ctx context.Context, m
 		Complete(r)
 }
 
-func (r *IroncoreMetalMachineReconciler) metalClusterToMachines(ctx context.Context) handler.MapFunc {
+func (r *IroncoreMetalMachineReconciler) metalClusterToMachines(ctx context.Context, clusterToMachines handler.MapFunc) handler.MapFunc {
 	log := ctrl.LoggerFrom(ctx)
 	return func(ctx context.Context, o client.Object) []ctrl.Request {
 		metalCluster, ok := o.(*infrav1alpha1.IroncoreMetalCluster)
@@ -247,28 +247,7 @@ func (r *IroncoreMetalMachineReconciler) metalClusterToMachines(ctx context.Cont
 			return nil
 		}
 
-		machineList := &clusterapiv1beta2.MachineList{}
-		if err := r.List(ctx, machineList,
-			client.InNamespace(metalCluster.Namespace),
-			client.MatchingLabels{clusterapiv1beta2.ClusterNameLabel: cluster.Name},
-		); err != nil {
-			log.Error(err, "failed to list Machines for IroncoreMetalCluster")
-			return nil
-		}
-
-		var requests []ctrl.Request
-		for _, machine := range machineList.Items {
-			if machine.Spec.InfrastructureRef.Kind != "IroncoreMetalMachine" {
-				continue
-			}
-			requests = append(requests, ctrl.Request{
-				NamespacedName: types.NamespacedName{
-					Namespace: machine.Namespace,
-					Name:      machine.Spec.InfrastructureRef.Name,
-				},
-			})
-		}
-		return requests
+		return clusterToMachines(ctx, cluster)
 	}
 }
 
