@@ -21,12 +21,14 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterapiv1beta2 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	capiv1beta2 "sigs.k8s.io/cluster-api/api/ipam/v1beta2"
+	"sigs.k8s.io/cluster-api/util"
 
 	infrav1alpha1 "github.com/ironcore-dev/cluster-api-provider-ironcore-metal/api/v1alpha1"
 	"github.com/ironcore-dev/controller-utils/clientutils"
@@ -197,6 +199,132 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 			expectIgnition(`{"name":"metal-machine"}`)
 		})
 
+		It("should retry when the bootstrap data secret is not available yet", func() {
+			missingSecretName := "missing-bootstrap-secret"
+			Eventually(Update(machine, func() {
+				machine.Spec.Bootstrap.DataSecretName = &missingSecretName
+			})).Should(Succeed())
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(metalMachine),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(infrav1alpha1.DefaultReconcilerRequeue))
+		})
+
+		It("should fail when a ServerClaim exists but is not controlled by this IroncoreMetalMachine", func() {
+			orphanClaim := &metalv1alpha1.ServerClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      metalMachine.Name,
+					Namespace: metalMachine.Namespace,
+				},
+				Spec: metalv1alpha1.ServerClaimSpec{
+					Power: metalv1alpha1.PowerOn,
+					Image: "test-image",
+				},
+			}
+			Expect(k8sClient.Create(ctx, orphanClaim)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, orphanClaim))).To(Succeed())
+			})
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(metalMachine),
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("not controlled by"))
+		})
+
+		It("should reconcile an existing ServerClaim without fetching the bootstrap data secret", func() {
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(metalMachine),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			serverClaim := &metalv1alpha1.ServerClaim{}
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), serverClaim)).To(Succeed())
+			serverClaim.Status.Phase = metalv1alpha1.PhaseBound
+			Expect(k8sClient.Status().Update(ctx, serverClaim)).To(Succeed())
+
+			missingSecretName := "missing-bootstrap-secret"
+			Eventually(Update(machine, func() {
+				machine.Spec.Bootstrap.DataSecretName = &missingSecretName
+			})).Should(Succeed())
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(metalMachine),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+			Eventually(func() bool {
+				Expect(get(metalMachine)).To(Succeed())
+				return metalMachine.Status.Initialization.Provisioned != nil && *metalMachine.Status.Initialization.Provisioned
+			}).Should(BeTrue())
+		})
+
+		It("should skip reconciliation once the machine is already provisioned", func() {
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(metalMachine),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			serverClaim := &metalv1alpha1.ServerClaim{}
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), serverClaim)).To(Succeed())
+			serverClaim.Status.Phase = metalv1alpha1.PhaseBound
+			Expect(k8sClient.Status().Update(ctx, serverClaim)).To(Succeed())
+
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(metalMachine),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(func() bool {
+				Expect(get(metalMachine)).To(Succeed())
+				return metalMachine.Status.Initialization.Provisioned != nil && *metalMachine.Status.Initialization.Provisioned
+			}).Should(BeTrue())
+
+			// Deleting the ServerClaim must not trigger recreation while provisioned.
+			Expect(k8sClient.Delete(ctx, serverClaim)).To(Succeed())
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(metalMachine),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			recreated := &metalv1alpha1.ServerClaim{}
+			Expect(apierrors.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), recreated))).To(BeTrue())
+		})
+
+		It("should map an IroncoreMetalCluster using the owning Cluster name before it is ready", func() {
+			ownerCluster := cluster.DeepCopy()
+			ownerCluster.Name = "owner-cluster"
+			infrastructureCluster := metalCluster.DeepCopy()
+			infrastructureCluster.Name = "infrastructure-cluster"
+			Expect(controllerutil.SetControllerReference(ownerCluster, infrastructureCluster, k8sClient.Scheme())).To(Succeed())
+			ownedMetalMachine := metalMachine.DeepCopy()
+			ownedMetalMachine.Labels = map[string]string{
+				clusterapiv1beta2.ClusterNameLabel: ownerCluster.Name,
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(k8sClient.Scheme()).
+				WithRESTMapper(k8sClient.RESTMapper()).
+				WithObjects(ownerCluster, infrastructureCluster, ownedMetalMachine).
+				Build()
+
+			clusterToMachines, err := util.ClusterToTypedObjectsMapper(fakeClient, &infrav1alpha1.IroncoreMetalMachineList{}, k8sClient.Scheme())
+			Expect(err).NotTo(HaveOccurred())
+
+			mapperReconciler := &IroncoreMetalMachineReconciler{
+				Client: fakeClient,
+				Scheme: k8sClient.Scheme(),
+			}
+			mapper := mapperReconciler.metalClusterToMachines(ctx, clusterToMachines)
+			Expect(mapper(ctx, infrastructureCluster)).To(ContainElement(ctrl.Request{NamespacedName: types.NamespacedName{
+				Namespace: namespace,
+				Name:      metalMachine.Name,
+			}}))
+		})
+
 		When("the metadata is present in the metal machine", func() {
 			BeforeEach(func() {
 				metalMachine.Spec.Metadata = &apiextensionsv1.JSON{
@@ -325,11 +453,35 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 					HaveField("OwnerReferences", ContainElement(
 						metav1.OwnerReference{
 							APIVersion: metalv1alpha1.GroupVersion.String(),
-							Kind:       "ServerClaim",
+							Kind:       serverClaimKind,
 							Name:       serverClaim.Name,
 							UID:        serverClaim.UID,
 						},
 					))))
+			})
+
+			It("should repair the owner reference on an existing IP address claim", func() {
+				reconcileWithIPAM()
+
+				Eventually(Update(ipAddressClaim, func() {
+					ipAddressClaim.OwnerReferences = nil
+				})).Should(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(metalMachine),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				serverClaim := &metalv1alpha1.ServerClaim{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(metalMachine), serverClaim)).To(Succeed())
+				Eventually(Object(ipAddressClaim)).Should(HaveField("OwnerReferences", ContainElement(
+					metav1.OwnerReference{
+						APIVersion: metalv1alpha1.GroupVersion.String(),
+						Kind:       serverClaimKind,
+						Name:       serverClaim.Name,
+						UID:        serverClaim.UID,
+					},
+				)))
 			})
 
 			It("should set the owner reference on the ip address", func() {
