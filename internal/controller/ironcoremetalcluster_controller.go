@@ -51,6 +51,11 @@ func (r *IroncoreMetalClusterReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, err
 	}
 
+	// Repair conditions left by the v1beta1 contract before anything patches the status.
+	if err := r.ensureConditionReasons(ctx, metalCluster); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// Get owner cluster
 	cluster, err := util.GetOwnerCluster(ctx, r.Client, metalCluster.ObjectMeta)
 	if err != nil {
@@ -187,4 +192,20 @@ func (r *IroncoreMetalClusterReconciler) SetupWithManager(ctx context.Context, m
 			handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(ctx, infrav1.GroupVersion.WithKind("IroncoreMetalCluster"), mgr.GetClient(), &infrav1.IroncoreMetalCluster{})),
 		).
 		Complete(r)
+}
+
+// ensureConditionReasons persists missing condition reasons on IroncoreMetalClusters created by
+// provider versions implementing the v1beta1 contract (v0.2.0 and earlier); see
+// setMissingConditionReasons. It patches right away because paused.EnsurePausedCondition patches
+// the status next, and that patch would be rejected while a condition has no reason.
+func (r *IroncoreMetalClusterReconciler) ensureConditionReasons(ctx context.Context, metalCluster *infrav1.IroncoreMetalCluster) error {
+	base := metalCluster.DeepCopy()
+	if !setMissingConditionReasons(metalCluster.Status.Conditions) {
+		return nil
+	}
+	if err := r.Status().Patch(ctx, metalCluster, client.MergeFrom(base)); err != nil {
+		return errors.Wrap(err, "failed to set missing condition reasons")
+	}
+	log.FromContext(ctx).Info("Set missing reasons on conditions left by the v1beta1 contract")
+	return nil
 }
