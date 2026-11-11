@@ -62,7 +62,7 @@ var _ = BeforeSuite(func() {
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "..", "config", "crd", "bases"),
-			modutils.Dir("sigs.k8s.io/cluster-api", "config", "crd", "bases"),
+			modutils.Dir("sigs.k8s.io/cluster-api", "core", "config", "crd", "bases"),
 			modutils.Dir("github.com/ironcore-dev/metal-operator", "config", "crd", "bases"),
 		},
 		ErrorIfCRDPathMissing: true,
