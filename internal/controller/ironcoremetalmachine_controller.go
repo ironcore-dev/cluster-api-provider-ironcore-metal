@@ -268,8 +268,16 @@ func (r *IroncoreMetalMachineReconciler) metalClusterToMachines(ctx context.Cont
 	}
 }
 
+//nolint:unparam // The result and error are needed once the ServerClaim deletion logic waits for the ServerClaim.
 func (r *IroncoreMetalMachineReconciler) reconcileDelete(_ context.Context, machineScope *scope.MachineScope) (ctrl.Result, error) {
 	machineScope.Info("Deleting IroncoreMetalMachine")
+
+	// Surface the deletion on the ServerClaimReady condition; the Ready summary picks it up.
+	conditions.Set(machineScope.IroncoreMetalMachine, metav1.Condition{
+		Type:   infrav1alpha1.IroncoreMetalMachineServerClaimReadyCondition,
+		Status: metav1.ConditionFalse,
+		Reason: infrav1alpha1.IroncoreMetalMachineServerClaimDeletingReason,
+	})
 
 	// insert ServerClaim deletion logic here
 

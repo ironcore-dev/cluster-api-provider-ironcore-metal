@@ -37,7 +37,11 @@ import (
 	metalv1alpha1 "github.com/ironcore-dev/metal-operator/api/v1alpha1"
 )
 
-const ironcoreMetalMachine = "IroncoreMetalMachine"
+const (
+	ironcoreMetalMachine = "IroncoreMetalMachine"
+	ipamAPIGroup         = "ipam.cluster.x-k8s.io"
+	ipPoolKind           = "GlobalInClusterIPPool"
+)
 
 // haveCondition matches an object whose status has a condition of the given
 // type, status and reason.
@@ -558,8 +562,8 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 						},
 						PoolRef: capiv1beta2.IPPoolReference{
 							Name:     "test-ip-pool",
-							Kind:     "GlobalInClusterIPPool",
-							APIGroup: "ipam.cluster.x-k8s.io",
+							Kind:     ipPoolKind,
+							APIGroup: ipamAPIGroup,
 						},
 					},
 				}
@@ -568,8 +572,8 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 					MetadataKey: metadataKey,
 					IPAMRef: &infrav1alpha1.IPAMObjectReference{
 						Name:     "pool",
-						APIGroup: "ipam.cluster.x-k8s.io",
-						Kind:     "GlobalInClusterIPPool",
+						APIGroup: ipamAPIGroup,
+						Kind:     ipPoolKind,
 					},
 				}}
 
@@ -695,8 +699,8 @@ var _ = Describe("IroncoreMetalMachine Controller", func() {
 				}
 				ipAddressClaim.Spec.PoolRef = capiv1beta2.IPPoolReference{
 					Name:     "pool",
-					APIGroup: "ipam.cluster.x-k8s.io",
-					Kind:     "GlobalInClusterIPPool",
+					APIGroup: ipamAPIGroup,
+					Kind:     ipPoolKind,
 				}
 				Expect(k8sClient.Create(ctx, ipAddressClaim)).To(Succeed())
 
