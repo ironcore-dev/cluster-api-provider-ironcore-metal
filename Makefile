@@ -69,7 +69,6 @@ test: manifests generate goimports fmt vet envtest ## Run tests.
 .PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
 test-e2e: manifests kustomize
 	$(MAKE) docker-build IMG=registry.local/controller:latest # CAPI test framework requires "conventional image name"
-	$(KUSTOMIZE) build config/e2e > test/e2e/data/infrastructure-ironcore-metal/v0.3.0/infrastructure-components.yaml
 	go test -tags e2e ./test/e2e/ -v -ginkgo.v
 
 .PHONY: lint

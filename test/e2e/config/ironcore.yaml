@@ -19,10 +19,11 @@ providers:
           - sourcePath: "../data/infrastructure-ironcore-metal/v0.2.0/cluster-template.yaml"
             targetName: "cluster-template.yaml"
 
-      - name: v0.3.0
-        type: url
+      # The version under development (.99 marks it as unreleased), built from config/e2e with kustomize.
+      - name: v0.3.99
+        type: kustomize
         contract: v1beta2
-        value: "../data/infrastructure-ironcore-metal/v0.3.0/infrastructure-components.yaml"
+        value: "../../../config/e2e"
         files:
           - sourcePath: "../data/infrastructure-ironcore-metal/v0.3.0/metadata.yaml"
             targetName: "metadata.yaml"
@@ -31,46 +32,50 @@ providers:
           - sourcePath: "../data/infrastructure-ironcore-metal/v0.3.0/cluster-template-topology.yaml"
             targetName: "cluster-template-topology.yaml"
 
+  # CAPI versions are resolved to the latest patch release of the given minor via the Go proxy.
   - name: cluster-api
     type: CoreProvider
     versions:
-      - name: v1.11.6
-        value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.6/core-components.yaml"
+      - name: "{go://sigs.k8s.io/cluster-api@v1.14}"
+        value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/{go://sigs.k8s.io/cluster-api@v1.14}/core-components.yaml"
         type: url
+        contract: v1beta2
         files:
-          - sourcePath: "../data/shared/capi/v1.11.6/metadata.yaml"
+          - sourcePath: "../data/shared/capi/metadata.yaml"
             targetName: "metadata.yaml"
+
   - name: kubeadm
     type: BootstrapProvider
     versions:
-      - name: v1.11.6
-        value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.6/bootstrap-components.yaml"
+      - name: "{go://sigs.k8s.io/cluster-api@v1.14}"
+        value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/{go://sigs.k8s.io/cluster-api@v1.14}/bootstrap-components.yaml"
         type: url
+        contract: v1beta2
         files:
-        - sourcePath: "../data/shared/capi/v1.11.6/metadata.yaml"
-          targetName: "metadata.yaml"
+          - sourcePath: "../data/shared/capi/metadata.yaml"
+            targetName: "metadata.yaml"
 
   - name: kubeadm
     type: ControlPlaneProvider
     versions:
-      - name: v1.11.6
-        value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.6/control-plane-components.yaml"
+      - name: "{go://sigs.k8s.io/cluster-api@v1.14}"
+        value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/{go://sigs.k8s.io/cluster-api@v1.14}/control-plane-components.yaml"
         type: url
+        contract: v1beta2
         files:
-          - sourcePath: "../data/shared/capi/v1.11.6/metadata.yaml"
+          - sourcePath: "../data/shared/capi/metadata.yaml"
             targetName: "metadata.yaml"
 
 variables:
-  KUBERNETES_VERSION: "v1.34.0"
-  KUBERNETES_VERSION_MANAGEMENT: "v1.34.0"
+  KUBERNETES_VERSION: "v1.37.0"
+  KUBERNETES_VERSION_MANAGEMENT: "v1.37.0"
   CONTROL_PLANE_MACHINE_COUNT: "1"
   WORKER_MACHINE_COUNT: "1"
   CONTROL_PLANE_SERVER_SELECTOR: '{"server": "metal"}'
   WORKER_SERVER_SELECTOR: '{"server": "metal"}'
-  CNI_RESOURCES: "https://raw.githubusercontent.com/projectcalico/calico/v3.31.3/manifests/calico.yaml"
+  CNI_RESOURCES: "https://raw.githubusercontent.com/projectcalico/calico/v3.33.0/manifests/calico.yaml"
   EXP_KUBEADM_BOOTSTRAP_FORMAT_IGNITION: "true"
   CLUSTER_TOPOLOGY: "true"
-  CAPI_VERSION: "v1.11.6"
-  KUBEADM_VERSION: "v1.11.6"
-  OLD_PROVIDER_VERSION: "v0.2.0"
-  NEW_PROVIDER_VERSION: "v0.3.0"
+
+intervals:
+  clusterctl-upgrade/wait-infrastructure-provisioned: ["5m", "10s"]

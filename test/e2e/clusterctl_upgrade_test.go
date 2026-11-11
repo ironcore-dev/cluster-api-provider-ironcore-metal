@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/test/framework"
 	"sigs.k8s.io/cluster-api/test/framework/bootstrap"
 	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
@@ -66,29 +67,33 @@ var _ = Describe("Management Cluster Upgrade Test", func() {
 	})
 
 	It("Should successfully upgrade the provider", func() {
-		capiVersion := e2eCtx.E2EConfig.MustGetVariable("CAPI_VERSION")
-		kubeadmVersion := e2eCtx.E2EConfig.MustGetVariable("KUBEADM_VERSION")
-		initVersion := e2eCtx.E2EConfig.MustGetVariable("OLD_PROVIDER_VERSION")
-		upgradeVersion := e2eCtx.E2EConfig.MustGetVariable("NEW_PROVIDER_VERSION")
+		// The versions come from the providers in the e2e config: CAPI and kubeadm at the version
+		// resolved for the current contract, ironcore-metal from its oldest (v1beta1 contract)
+		// to its latest (v1beta2 contract, built from source) version.
+		currentContract := clusterv1.GroupVersion.Version
+		coreProvider := singleProvider(e2eCtx.E2EConfig.GetProviderLatestVersionsByContract(currentContract, "cluster-api"))
+		kubeadmProvider := singleProvider(e2eCtx.E2EConfig.GetProviderLatestVersionsByContract(currentContract, "kubeadm"))
+		initInfraProvider := singleProvider(e2eCtx.E2EConfig.GetProvidersWithOldestVersion("ironcore-metal"))
+		upgradeInfraProvider := singleProvider(e2eCtx.E2EConfig.GetProviderLatestVersionsByContract(currentContract, "ironcore-metal"))
 
-		By(fmt.Sprintf("Initializing the management cluster with older provider version (%s)", initVersion))
+		By(fmt.Sprintf("Initializing the management cluster with %s, %s and %s", coreProvider, kubeadmProvider, initInfraProvider))
 		clusterctl.InitManagementClusterAndWatchControllerLogs(ctx,
 			clusterctl.InitManagementClusterAndWatchControllerLogsInput{
 				ClusterProxy:            managementClusterProxy,
 				ClusterctlConfigPath:    e2eCtx.Environment.ClusterctlConfigPath,
-				CoreProvider:            "cluster-api:" + capiVersion,
-				BootstrapProviders:      []string{"kubeadm:" + kubeadmVersion},
-				ControlPlaneProviders:   []string{"kubeadm:" + kubeadmVersion},
-				InfrastructureProviders: []string{"ironcore-metal:" + initVersion},
+				CoreProvider:            coreProvider,
+				BootstrapProviders:      []string{kubeadmProvider},
+				ControlPlaneProviders:   []string{kubeadmProvider},
+				InfrastructureProviders: []string{initInfraProvider},
 				LogFolder:               managementClusterLogFolder,
 			}, e2eCtx.E2EConfig.GetIntervals(specName, "wait-controllers")...,
 		)
 
-		By(fmt.Sprintf("Upgrading the providers to the new version (%s)", upgradeVersion))
+		By(fmt.Sprintf("Upgrading the infrastructure provider to %s", upgradeInfraProvider))
 		clusterctl.UpgradeManagementClusterAndWait(ctx, clusterctl.UpgradeManagementClusterAndWaitInput{
 			ClusterctlConfigPath:    e2eCtx.Environment.ClusterctlConfigPath,
 			ClusterProxy:            managementClusterProxy,
-			InfrastructureProviders: []string{"ironcore-metal:" + upgradeVersion},
+			InfrastructureProviders: []string{upgradeInfraProvider},
 			ClusterctlVariables:     e2eCtx.E2EConfig.Variables,
 			LogFolder:               managementClusterLogFolder,
 		}, e2eCtx.E2EConfig.GetIntervals(specName, "wait-controllers")...)
@@ -96,3 +101,9 @@ var _ = Describe("Management Cluster Upgrade Test", func() {
 		By("\n********** The Management Cluster was successfully upgraded! **********\n\n")
 	})
 })
+
+// singleProvider returns the only "name:version" entry of a provider lookup from the e2e config.
+func singleProvider(providers []string) string {
+	ExpectWithOffset(1, providers).To(HaveLen(1), "expected exactly one matching provider version in the e2e config")
+	return providers[0]
+}
